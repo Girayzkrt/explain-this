@@ -32,6 +32,11 @@ export interface ModelInfo {
   sizeBytes?: number;
 }
 
+export interface ModelDetails extends ModelInfo {
+  family?: string;
+  parameterSize?: string;
+}
+
 export interface GenerationMetrics {
   inputTokens?: number;
   outputTokens?: number;
@@ -54,6 +59,7 @@ export type ModelDownloadEvent =
 export interface LlmProvider {
   checkHealth(signal: AbortSignal): Promise<ProviderHealth>;
   listModels(signal: AbortSignal): Promise<ModelInfo[]>;
+  getModelDetails(model: string, signal: AbortSignal): Promise<ModelDetails>;
   streamChat(
     requestId: string,
     request: ChatRequest,

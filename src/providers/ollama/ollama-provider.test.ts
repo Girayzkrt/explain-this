@@ -128,6 +128,111 @@ describe("OllamaProvider", () => {
     });
   });
 
+  it("cancels an unread tags response body when Ollama returns an error", async () => {
+    let bodyCancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        bodyCancelled = true;
+      },
+    });
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async () => new Response(body, { status: 403 }),
+    });
+
+    await expect(
+      provider.listModels(new AbortController().signal),
+    ).rejects.toMatchObject({
+      code: "OLLAMA_ORIGIN_BLOCKED",
+    });
+    expect(bodyCancelled).toBe(true);
+  });
+
+  it("posts to /api/show and maps Ollama details to the neutral model shape", async () => {
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async (input, init) => {
+        expect(String(input)).toBe("http://localhost:11434/api/show");
+        expect(init?.method).toBe("POST");
+        expect(init?.credentials).toBe("omit");
+        expect(JSON.parse(String(init?.body))).toEqual({ model: "qwen3:4b" });
+        return jsonResponse({
+          license: "Apache-2.0",
+          details: {
+            family: "qwen3",
+            parameter_size: "4.0B",
+            quantization_level: "Q4_K_M",
+          },
+        });
+      },
+    });
+
+    await expect(
+      provider.getModelDetails("qwen3:4b", new AbortController().signal),
+    ).resolves.toEqual({
+      id: "qwen3:4b",
+      displayName: "qwen3:4b",
+      family: "qwen3",
+      parameterSize: "4.0B",
+    });
+  });
+
+  it("maps /api/show failures safely and cancels their unread response body", async () => {
+    let bodyCancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("private-model metadata"));
+      },
+      cancel() {
+        bodyCancelled = true;
+      },
+    });
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async () => new Response(body, { status: 404 }),
+    });
+
+    const result = provider.getModelDetails("qwen3:4b", new AbortController().signal);
+    await expect(result).rejects.toMatchObject({
+      code: "MODEL_NOT_FOUND",
+      recoverable: true,
+    } satisfies Partial<PublicError>);
+    await expect(result).rejects.not.toMatchObject({
+      message: expect.stringContaining("private-model"),
+    });
+    expect(bodyCancelled).toBe(true);
+  });
+
+  it("cancels a pending /api/show request when the caller aborts", async () => {
+    let fetchAborted = false;
+    const fetchImpl: typeof fetch = async (_input, init) =>
+      await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            fetchAborted = true;
+            reject(init.signal?.reason);
+          },
+          { once: true },
+        );
+      });
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl,
+    });
+    const caller = new AbortController();
+    const pending = provider.getModelDetails("qwen3:4b", caller.signal);
+    const expectation = expect(pending).rejects.toMatchObject({
+      code: "REQUEST_CANCELLED",
+      recoverable: true,
+    } satisfies Partial<PublicError>);
+
+    caller.abort();
+
+    await expectation;
+    expect(fetchAborted).toBe(true);
+  });
+
   it("maps a fetch TypeError to OLLAMA_UNREACHABLE", async () => {
     const provider = createOllamaProvider({
       baseUrl: "http://localhost:11434",

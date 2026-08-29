@@ -31,6 +31,10 @@ describe("normalizeOllamaBaseUrl", () => {
     "http://localhost.example.com:11434",
     "http://localhost%2eexample.com:11434",
     "http://127.0.0.1%2eexample.com:11434",
+    "http://2130706433:11434",
+    "http://0x7f000001:11434",
+    "http://127.1:11434",
+    "http://0177.0.0.1:11434",
     "not a url",
   ])("rejects a non-exact Ollama loopback API base %s", (input) => {
     expect(() => normalizeOllamaBaseUrl(input)).toThrow(

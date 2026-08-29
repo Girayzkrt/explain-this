@@ -5,6 +5,7 @@ import type {
   DownloadableModelProvider,
   GenerationMetrics,
   ModelDownloadEvent,
+  ModelDetails,
   ModelInfo,
   ProviderHealth,
   StreamEvent,
@@ -12,6 +13,7 @@ import type {
 import { mapOllamaFailure, mapOllamaResponseError, toPublicErrorShape } from "./errors";
 import {
   ollamaChatChunkSchema,
+  ollamaModelDetailsSchema,
   ollamaPullChunkSchema,
   ollamaTagsSchema,
   type OllamaChatChunk,
@@ -121,6 +123,44 @@ export class OllamaProvider implements DownloadableModelProvider {
       displayName: model.name,
       sizeBytes: model.size,
     }));
+  }
+
+  async getModelDetails(model: string, signal: AbortSignal): Promise<ModelDetails> {
+    const operation = startOperation(signal, this.overallTimeoutMs);
+    let response: Response | undefined;
+    let completedNormally = false;
+
+    try {
+      response = await this.fetchWithConnectionTimeout(
+        "api/show",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "omit",
+          body: JSON.stringify({ model }),
+        },
+        operation.controller,
+      );
+      if (!response.ok) throw mapOllamaResponseError(response);
+
+      const ollamaDetails = ollamaModelDetailsSchema.parse(await response.json());
+      const details: ModelDetails = { id: model, displayName: model };
+      if (ollamaDetails.details.family !== undefined) {
+        details.family = ollamaDetails.details.family;
+      }
+      if (ollamaDetails.details.parameter_size !== undefined) {
+        details.parameterSize = ollamaDetails.details.parameter_size;
+      }
+      completedNormally = true;
+      return details;
+    } catch (error) {
+      throw mapOllamaFailure(error, operation.controller.signal);
+    } finally {
+      operation.cleanup();
+      if (response?.body && !completedNormally && !response.bodyUsed) {
+        await response.body.cancel().catch(() => undefined);
+      }
+    }
   }
 
   async *streamChat(
@@ -327,18 +367,25 @@ export class OllamaProvider implements DownloadableModelProvider {
     signal: AbortSignal,
   ): Promise<ReturnType<typeof ollamaTagsSchema.parse>> {
     const operation = startOperation(signal, this.overallTimeoutMs);
+    let response: Response | undefined;
+    let completedNormally = false;
     try {
-      const response = await this.fetchWithConnectionTimeout(
+      response = await this.fetchWithConnectionTimeout(
         "api/tags",
         { method: "GET", credentials: "omit" },
         operation.controller,
       );
       if (!response.ok) throw mapOllamaResponseError(response);
-      return ollamaTagsSchema.parse(await response.json());
+      const tags = ollamaTagsSchema.parse(await response.json());
+      completedNormally = true;
+      return tags;
     } catch (error) {
       throw mapOllamaFailure(error, operation.controller.signal);
     } finally {
       operation.cleanup();
+      if (response?.body && !completedNormally && !response.bodyUsed) {
+        await response.body.cancel().catch(() => undefined);
+      }
     }
   }
 

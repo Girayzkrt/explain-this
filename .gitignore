@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Local design and implementation planning artifacts
+docs/planning/
+
+# Isolated implementation worktrees and subagent workflow records
+.worktrees/
+.superpowers/

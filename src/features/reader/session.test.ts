@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { StreamEvent } from "../../providers/provider";
 import type { ReaderSession } from "./session";
 import { reduceReaderSession } from "./session";
 
@@ -73,7 +74,11 @@ describe("reduceReaderSession", () => {
   });
 
   it("leaves accumulated text unchanged for stale and duplicate deltas", () => {
-    const afterFirst = reduceReaderSession(session(), {
+    const started = reduceReaderSession(session(), {
+      type: "started",
+      requestId: "request-1",
+    });
+    const afterFirst = reduceReaderSession(started, {
       type: "delta",
       requestId: "request-1",
       sequence: 0,
@@ -105,7 +110,11 @@ describe("reduceReaderSession", () => {
   });
 
   it("caps display output at the defensive character ceiling", () => {
-    const result = reduceReaderSession(session(), {
+    const started = reduceReaderSession(session(), {
+      type: "started",
+      requestId: "request-1",
+    });
+    const result = reduceReaderSession(started, {
       type: "delta",
       requestId: "request-1",
       sequence: 0,
@@ -114,6 +123,132 @@ describe("reduceReaderSession", () => {
 
     expect(result.answer).toHaveLength(16_000);
   });
+
+  it("does not reset an active answer for duplicate or stale started events", () => {
+    const started = reduceReaderSession(session(), {
+      type: "started",
+      requestId: "request-1",
+    });
+    const active = reduceReaderSession(started, {
+      type: "delta",
+      requestId: "request-1",
+      sequence: 0,
+      text: "keep this answer",
+    });
+
+    expect(
+      reduceReaderSession(active, {
+        type: "started",
+        requestId: "request-1",
+      }),
+    ).toBe(active);
+    expect(
+      reduceReaderSession(active, {
+        type: "started",
+        requestId: "stale-request",
+      }),
+    ).toBe(active);
+  });
+
+  it("does not reopen terminal sessions when later deltas arrive", () => {
+    const started = reduceReaderSession(session(), {
+      type: "started",
+      requestId: "request-1",
+    });
+    const active = reduceReaderSession(started, {
+      type: "delta",
+      requestId: "request-1",
+      sequence: 0,
+      text: "finished answer",
+    });
+    const terminalEvents: StreamEvent[] = [
+      { type: "completed", requestId: "request-1" },
+      { type: "cancelled", requestId: "request-1" },
+      {
+        type: "failed",
+        requestId: "request-1",
+        error: {
+          code: "PROVIDER_ERROR",
+          message: "The model failed.",
+          recoverable: true,
+        },
+      },
+    ];
+
+    for (const terminalEvent of terminalEvents) {
+      const terminal = reduceReaderSession(active, terminalEvent);
+      expect(
+        reduceReaderSession(terminal, {
+          type: "delta",
+          requestId: "request-1",
+          sequence: 1,
+          text: " must be ignored",
+        }),
+      ).toBe(terminal);
+    }
+  });
+
+  it("accepts lifecycle events only from valid states", () => {
+    const pending = session();
+    expect(
+      reduceReaderSession(pending, {
+        type: "delta",
+        requestId: "request-1",
+        sequence: 0,
+        text: "too early",
+      }),
+    ).toBe(pending);
+    expect(
+      reduceReaderSession(pending, {
+        type: "completed",
+        requestId: "request-1",
+      }),
+    ).toBe(pending);
+
+    const failed = reduceReaderSession(pending, {
+      type: "failed",
+      requestId: "request-1",
+      error: {
+        code: "PROVIDER_ERROR",
+        message: "The model failed before streaming.",
+        recoverable: true,
+      },
+    });
+    expect(failed.status).toBe("failed");
+    expect(
+      reduceReaderSession(failed, {
+        type: "started",
+        requestId: "request-1",
+      }),
+    ).toBe(failed);
+  });
+
+  it.each([
+    { type: "started", requestId: "stale-request" },
+    {
+      type: "delta",
+      requestId: "stale-request",
+      sequence: 0,
+      text: "stale",
+    },
+    { type: "completed", requestId: "stale-request" },
+    { type: "cancelled", requestId: "stale-request" },
+    {
+      type: "failed",
+      requestId: "stale-request",
+      error: {
+        code: "PROVIDER_ERROR" as const,
+        message: "stale",
+        recoverable: true,
+      },
+    },
+  ] satisfies StreamEvent[])(
+    "does not mutate for stale $type lifecycle events",
+    (event) => {
+      const current = session();
+      expect(reduceReaderSession(current, event)).toBe(current);
+    },
+  );
 
   it("serializes only JSON-safe public session fields", () => {
     const publicSession = session();

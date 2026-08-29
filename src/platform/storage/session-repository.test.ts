@@ -10,9 +10,12 @@ import {
 import { initializeStorageAccess } from "./storage-area";
 import { createSessionRepository } from "./session-repository";
 
-const readerSession = (origin = "https://example.test"): ReaderSession => ({
+const readerSession = (
+  origin = "https://example.test",
+  requestId = "request-7",
+): ReaderSession => ({
   tabId: 7,
-  requestId: "request-7",
+  requestId,
   selectionPreview: "Short public preview",
   action: "simplify",
   contextIncluded: true,
@@ -22,8 +25,11 @@ const readerSession = (origin = "https://example.test"): ReaderSession => ({
   origin,
 });
 
-const privateSource = (origin = "https://example.test"): PrivateSourceEnvelope => ({
-  requestId: "request-7",
+const privateSource = (
+  origin = "https://example.test",
+  requestId = "request-7",
+): PrivateSourceEnvelope => ({
+  requestId,
   selection: "The full private selected text must never appear in the UI session.",
   nearbyContext: "The full private nearby context.",
   previousAnswer: "A bounded prior answer.",
@@ -111,17 +117,92 @@ describe("session repository", () => {
     );
   });
 
-  it("discards the private source when the tab origin changes", async () => {
-    const storage = new MemoryStorageArea();
-    const repository = createSessionRepository(storage);
-    await repository.putReaderSession(readerSession());
-    await repository.putPrivateSource(7, privateSource());
-    await repository.putReaderSession(readerSession("https://other.test"));
+  it.each([
+    {
+      transition: "origin",
+      firstWrite: "source",
+      nextOrigin: "https://other.test",
+      nextRequestId: "request-8",
+    },
+    {
+      transition: "origin",
+      firstWrite: "session",
+      nextOrigin: "https://other.test",
+      nextRequestId: "request-8",
+    },
+    {
+      transition: "request",
+      firstWrite: "source",
+      nextOrigin: "https://example.test",
+      nextRequestId: "request-8",
+    },
+    {
+      transition: "request",
+      firstWrite: "session",
+      nextOrigin: "https://example.test",
+      nextRequestId: "request-8",
+    },
+  ] as const)(
+    "keeps $transition transitions coherent when the $firstWrite is written first",
+    async ({ firstWrite, nextOrigin, nextRequestId }) => {
+      const storage = new MemoryStorageArea();
+      const repository = createSessionRepository(storage);
+      await repository.putReaderSession(readerSession());
+      await repository.putPrivateSource(7, privateSource());
 
-    await expect(repository.getPrivateSource(7)).resolves.toBeUndefined();
-    await expect(repository.getReaderSession(7)).resolves.toEqual(
-      readerSession("https://other.test"),
-    );
+      const nextSession = readerSession(nextOrigin, nextRequestId);
+      const nextSource = privateSource(nextOrigin, nextRequestId);
+      if (firstWrite === "source") {
+        await repository.putPrivateSource(7, nextSource);
+        await expect(storage.snapshot()).resolves.toEqual({
+          "reader-source:7": nextSource,
+        });
+        await repository.putReaderSession(nextSession);
+      } else {
+        await repository.putReaderSession(nextSession);
+        await expect(storage.snapshot()).resolves.toEqual({
+          "reader-session:7": nextSession,
+        });
+        await repository.putPrivateSource(7, nextSource);
+      }
+
+      await expect(storage.snapshot()).resolves.toEqual({
+        "reader-session:7": nextSession,
+        "reader-source:7": nextSource,
+      });
+    },
+  );
+
+  it.each([
+    ["selection", "漢".repeat(1_601), "SELECTION_TOO_LARGE"],
+    ["nearbyContext", "漢".repeat(401), "CONTEXT_TOO_LARGE"],
+    ["previousAnswer", "漢".repeat(601), "CONTEXT_TOO_LARGE"],
+  ] as const)(
+    "rejects a dense-script private %s over its approved token budget",
+    async (field, value, code) => {
+      const repository = createSessionRepository(new MemoryStorageArea());
+
+      await expect(
+        repository.putPrivateSource(7, {
+          ...privateSource(),
+          [field]: value,
+        }),
+      ).rejects.toMatchObject({ code });
+    },
+  );
+
+  it("preserves a private source unchanged at every approved dense-script boundary", async () => {
+    const repository = createSessionRepository(new MemoryStorageArea());
+    const source: PrivateSourceEnvelope = {
+      ...privateSource(),
+      selection: "漢".repeat(1_600),
+      nearbyContext: "漢".repeat(400),
+      previousAnswer: "漢".repeat(600),
+    };
+
+    await repository.putPrivateSource(7, source);
+
+    await expect(repository.getPrivateSource(7)).resolves.toEqual(source);
   });
 
   it("removes the public session and private source together", async () => {

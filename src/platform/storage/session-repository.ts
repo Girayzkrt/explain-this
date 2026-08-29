@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { enforceReadingBudget } from "../../core/requests/budget";
 import type { PublicErrorCode } from "../../core/requests/public-error";
 import {
   capDisplayCharacters,
@@ -61,10 +62,7 @@ const PrivateSourceEnvelopeSchema = z.object({
   requestId: z.string().min(1),
   selection: z.string().min(1),
   nearbyContext: z.string().optional(),
-  previousAnswer: z
-    .string()
-    .transform((value) => capDisplayCharacters(value, MAX_DISPLAY_ANSWER_CHARACTERS))
-    .optional(),
+  previousAnswer: z.string().optional(),
   origin: z.string().min(1),
 });
 
@@ -128,19 +126,7 @@ class TemporarySessionRepository implements SessionRepository {
 
   async putReaderSession(session: ReaderSession): Promise<void> {
     const publicSession = toReaderSession(ReaderSessionSchema.parse(session));
-    const [existingSession, privateSource] = await Promise.all([
-      this.getReaderSession(publicSession.tabId),
-      this.getPrivateSource(publicSession.tabId),
-    ]);
-
-    if (
-      (existingSession?.origin !== undefined &&
-        existingSession.origin !== publicSession.origin) ||
-      (privateSource?.origin !== undefined &&
-        privateSource.origin !== publicSession.origin)
-    ) {
-      await this.storage.remove(tabKey(publicSession.tabId, "reader-source"));
-    }
+    await this.clearIncoherentState(publicSession.tabId, publicSession);
 
     await this.storage.set({
       [tabKey(publicSession.tabId, "reader-session")]: publicSession,
@@ -158,6 +144,8 @@ class TemporarySessionRepository implements SessionRepository {
     const privateSource = toPrivateSourceEnvelope(
       PrivateSourceEnvelopeSchema.parse(source),
     );
+    enforceReadingBudget(privateSource);
+    await this.clearIncoherentState(tabId, privateSource);
     await this.storage.set({
       [tabKey(tabId, "reader-source")]: privateSource,
     });
@@ -168,6 +156,24 @@ class TemporarySessionRepository implements SessionRepository {
       tabKey(tabId, "reader-session"),
       tabKey(tabId, "reader-source"),
     ]);
+  }
+
+  private async clearIncoherentState(
+    tabId: number,
+    next: Pick<ReaderSession, "origin" | "requestId">,
+  ): Promise<void> {
+    const [session, source] = await Promise.all([
+      this.getReaderSession(tabId),
+      this.getPrivateSource(tabId),
+    ]);
+    const records = [session, source].filter(
+      (record): record is ReaderSession | PrivateSourceEnvelope => record !== undefined,
+    );
+    const hasDifferentIdentity = records.some(
+      (record) => record.origin !== next.origin || record.requestId !== next.requestId,
+    );
+
+    if (hasDifferentIdentity) await this.removeTabState(tabId);
   }
 }
 

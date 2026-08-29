@@ -57,8 +57,9 @@ export function reduceReaderSession(
 
   switch (event.type) {
     case "started":
-      return startSession(session);
+      return session.status === "pending" ? startSession(session) : session;
     case "delta":
+      if (session.status !== "streaming") return session;
       if (event.sequence !== session.lastSequence + 1) return session;
       return {
         ...session,
@@ -70,10 +71,16 @@ export function reduceReaderSession(
         lastSequence: event.sequence,
       };
     case "completed":
-      return { ...session, status: "completed" };
+      return session.status === "streaming"
+        ? { ...session, status: "completed" }
+        : session;
     case "cancelled":
-      return { ...session, status: "cancelled" };
+      return session.status === "pending" || session.status === "streaming"
+        ? { ...session, status: "cancelled" }
+        : session;
     case "failed":
-      return { ...session, status: "failed", error: event.error };
+      return session.status === "pending" || session.status === "streaming"
+        ? { ...session, status: "failed", error: event.error }
+        : session;
   }
 }

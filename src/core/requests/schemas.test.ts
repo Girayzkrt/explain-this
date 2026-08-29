@@ -55,6 +55,25 @@ describe("reading request schema", () => {
     ).toThrow(PublicError);
   });
 
+  it("rejects nearby context when the preference is disabled", () => {
+    expect(() =>
+      validateReadingRequest({
+        ...validRequest,
+        nearbyContext: "The prior paragraph defines concurrent work.",
+      }),
+    ).toThrow(PublicError);
+  });
+
+  it("accepts nearby context when the preference is enabled", () => {
+    expect(
+      validateReadingRequest({
+        ...validRequest,
+        nearbyContext: "The prior paragraph defines concurrent work.",
+        preferences: { ...validPreferences, includeNearbyContext: true },
+      }).nearbyContext,
+    ).toBe("The prior paragraph defines concurrent work.");
+  });
+
   it("requires a follow-up intent and previous answer together", () => {
     expect(() =>
       validateReadingRequest({ ...validRequest, followUpIntent: "why" }),

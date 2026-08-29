@@ -23,6 +23,11 @@ export const ReadingRequestSchema = z
     {
       message: "Follow-up intent and previous answer must be supplied together.",
     },
+  )
+  .refine(
+    (value) =>
+      value.nearbyContext === undefined || value.preferences.includeNearbyContext,
+    { message: "Nearby context must be enabled in reading preferences." },
   );
 
 export function validateReadingRequest(input: unknown): ReadingRequest {

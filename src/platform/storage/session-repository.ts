@@ -1,0 +1,176 @@
+import { z } from "zod";
+import type { PublicErrorCode } from "../../core/requests/public-error";
+import {
+  capDisplayCharacters,
+  MAX_DISPLAY_ANSWER_CHARACTERS,
+  MAX_SELECTION_PREVIEW_CHARACTERS,
+  type PrivateSourceEnvelope,
+  type ReaderSession,
+} from "../../features/reader/session";
+import type { StorageAreaLike } from "./storage-area";
+
+const publicErrorCodes = [
+  "OLLAMA_UNREACHABLE",
+  "OLLAMA_ORIGIN_BLOCKED",
+  "NO_MODEL",
+  "MODEL_NOT_FOUND",
+  "MODEL_DOWNLOAD_FAILED",
+  "CONNECTION_TIMEOUT",
+  "FIRST_TOKEN_TIMEOUT",
+  "STREAM_IDLE_TIMEOUT",
+  "MALFORMED_STREAM",
+  "UNSUPPORTED_PAGE",
+  "PAGE_PERMISSION_DENIED",
+  "EMPTY_SELECTION",
+  "SELECTION_TOO_LARGE",
+  "CONTEXT_TOO_LARGE",
+  "REQUEST_CANCELLED",
+  "PROVIDER_ERROR",
+  "INVALID_REQUEST",
+  "INVALID_ENDPOINT",
+] as const satisfies readonly PublicErrorCode[];
+
+const PublicErrorSchema = z
+  .object({
+    code: z.enum(publicErrorCodes),
+    message: z.string(),
+    recoverable: z.boolean(),
+  })
+  .strict();
+
+const ReaderSessionSchema = z.object({
+  tabId: z.number().int().nonnegative(),
+  requestId: z.string().min(1),
+  selectionPreview: z
+    .string()
+    .transform((value) =>
+      capDisplayCharacters(value, MAX_SELECTION_PREVIEW_CHARACTERS),
+    ),
+  action: z.enum(["explain", "simplify", "translate", "example"]),
+  contextIncluded: z.boolean(),
+  status: z.enum(["pending", "streaming", "completed", "cancelled", "failed"]),
+  answer: z
+    .string()
+    .transform((value) => capDisplayCharacters(value, MAX_DISPLAY_ANSWER_CHARACTERS)),
+  lastSequence: z.number().int().min(-1),
+  error: PublicErrorSchema.optional(),
+  origin: z.string().min(1),
+});
+
+const PrivateSourceEnvelopeSchema = z.object({
+  requestId: z.string().min(1),
+  selection: z.string().min(1),
+  nearbyContext: z.string().optional(),
+  previousAnswer: z
+    .string()
+    .transform((value) => capDisplayCharacters(value, MAX_DISPLAY_ANSWER_CHARACTERS))
+    .optional(),
+  origin: z.string().min(1),
+});
+
+export interface SessionRepository {
+  getReaderSession(tabId: number): Promise<ReaderSession | undefined>;
+  putReaderSession(session: ReaderSession): Promise<void>;
+  getPrivateSource(tabId: number): Promise<PrivateSourceEnvelope | undefined>;
+  putPrivateSource(tabId: number, source: PrivateSourceEnvelope): Promise<void>;
+  removeTabState(tabId: number): Promise<void>;
+}
+
+function tabKey(tabId: number, prefix: "reader-session" | "reader-source"): string {
+  if (!Number.isInteger(tabId) || tabId < 0) {
+    throw new TypeError("A reader session requires a non-negative numeric tab ID.");
+  }
+  return `${prefix}:${tabId}`;
+}
+
+function toReaderSession(value: z.output<typeof ReaderSessionSchema>): ReaderSession {
+  const session: ReaderSession = {
+    tabId: value.tabId,
+    requestId: value.requestId,
+    selectionPreview: value.selectionPreview,
+    action: value.action,
+    contextIncluded: value.contextIncluded,
+    status: value.status,
+    answer: value.answer,
+    lastSequence: value.lastSequence,
+    origin: value.origin,
+  };
+  if (value.error !== undefined) session.error = value.error;
+  return session;
+}
+
+function toPrivateSourceEnvelope(
+  value: z.output<typeof PrivateSourceEnvelopeSchema>,
+): PrivateSourceEnvelope {
+  const source: PrivateSourceEnvelope = {
+    requestId: value.requestId,
+    selection: value.selection,
+    origin: value.origin,
+  };
+  if (value.nearbyContext !== undefined) {
+    source.nearbyContext = value.nearbyContext;
+  }
+  if (value.previousAnswer !== undefined) {
+    source.previousAnswer = value.previousAnswer;
+  }
+  return source;
+}
+
+class TemporarySessionRepository implements SessionRepository {
+  constructor(private readonly storage: StorageAreaLike) {}
+
+  async getReaderSession(tabId: number): Promise<ReaderSession | undefined> {
+    const key = tabKey(tabId, "reader-session");
+    const record = await this.storage.get(key);
+    const parsed = ReaderSessionSchema.safeParse(record[key]);
+    return parsed.success ? toReaderSession(parsed.data) : undefined;
+  }
+
+  async putReaderSession(session: ReaderSession): Promise<void> {
+    const publicSession = toReaderSession(ReaderSessionSchema.parse(session));
+    const [existingSession, privateSource] = await Promise.all([
+      this.getReaderSession(publicSession.tabId),
+      this.getPrivateSource(publicSession.tabId),
+    ]);
+
+    if (
+      (existingSession?.origin !== undefined &&
+        existingSession.origin !== publicSession.origin) ||
+      (privateSource?.origin !== undefined &&
+        privateSource.origin !== publicSession.origin)
+    ) {
+      await this.storage.remove(tabKey(publicSession.tabId, "reader-source"));
+    }
+
+    await this.storage.set({
+      [tabKey(publicSession.tabId, "reader-session")]: publicSession,
+    });
+  }
+
+  async getPrivateSource(tabId: number): Promise<PrivateSourceEnvelope | undefined> {
+    const key = tabKey(tabId, "reader-source");
+    const record = await this.storage.get(key);
+    const parsed = PrivateSourceEnvelopeSchema.safeParse(record[key]);
+    return parsed.success ? toPrivateSourceEnvelope(parsed.data) : undefined;
+  }
+
+  async putPrivateSource(tabId: number, source: PrivateSourceEnvelope): Promise<void> {
+    const privateSource = toPrivateSourceEnvelope(
+      PrivateSourceEnvelopeSchema.parse(source),
+    );
+    await this.storage.set({
+      [tabKey(tabId, "reader-source")]: privateSource,
+    });
+  }
+
+  async removeTabState(tabId: number): Promise<void> {
+    await this.storage.remove([
+      tabKey(tabId, "reader-session"),
+      tabKey(tabId, "reader-source"),
+    ]);
+  }
+}
+
+export function createSessionRepository(storage: StorageAreaLike): SessionRepository {
+  return new TemporarySessionRepository(storage);
+}

@@ -23,6 +23,11 @@ export async function* parseNdjson<T>(
   signal.addEventListener("abort", cancelReader);
 
   try {
+    if (signal.aborted) {
+      await reader.cancel().catch(() => undefined);
+      signal.throwIfAborted();
+    }
+
     while (true) {
       signal.throwIfAborted();
       const { done, value } = await reader.read();
@@ -39,11 +44,13 @@ export async function* parseNdjson<T>(
       }
 
       for (const line of lines) {
+        signal.throwIfAborted();
         const normalized = line.endsWith("\r") ? line.slice(0, -1) : line;
         if (normalized.trim()) yield validate(JSON.parse(normalized));
       }
 
       if (done) {
+        signal.throwIfAborted();
         const normalized = finalLine?.endsWith("\r")
           ? finalLine.slice(0, -1)
           : finalLine;

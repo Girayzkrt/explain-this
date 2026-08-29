@@ -116,4 +116,38 @@ describe("parseNdjson", () => {
     expect(cancelled).toBe(true);
     expect(stream.locked).toBe(false);
   });
+
+  it("stops before yielding the next buffered record after abort", async () => {
+    const stream = streamFromChunks(utf8Chunks('{"n":1}\n{"n":2}\n'));
+    const abortController = new AbortController();
+    const iterator = parseNdjson(
+      stream,
+      (input) => input as { n: number },
+      abortController.signal,
+    );
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: { n: 1 },
+    });
+    abortController.abort();
+
+    await expect(iterator.next()).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("cancels the reader when iteration starts with an already-aborted signal", async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const abortController = new AbortController();
+    abortController.abort();
+    const iterator = parseNdjson(stream, (input) => input, abortController.signal);
+
+    await expect(iterator.next()).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toBe(true);
+    expect(stream.locked).toBe(false);
+  });
 });

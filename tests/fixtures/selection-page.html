@@ -1,0 +1,58 @@
+<!-- The MVP intentionally captures only the first Selection range. -->
+<main>
+  <article id="reading-article">
+    <p id="distant-before">Unrelated distant introduction.</p>
+    <p id="previous-block">Nearest previous reading block.</p>
+    <p id="current-block">
+      Current lead <span id="selected-text">selected phrase</span> current tail.
+      <span hidden>hidden inline secret</span>
+      <script>
+        script inline secret
+      </script>
+      <style>
+        .secret {
+          color: red;
+        }
+      </style>
+    </p>
+    <p id="next-block">Nearest next reading block.</p>
+    <p id="distant-after">Unrelated distant conclusion.</p>
+  </article>
+
+  <p id="nested-selection">Café uses <em>nested</em> markup.</p>
+  <p id="whitespace-selection"></p>
+
+  <input id="text-input" value="private input value" />
+  <input id="password-input" type="password" value="private password" />
+  <textarea id="textarea">private textarea value</textarea>
+  <div id="editable" contenteditable="true">private editable value</div>
+  <script id="script-node">
+    private script value
+  </script>
+  <style id="style-node">
+    .private {
+      content: "private style value";
+    }
+  </style>
+  <noscript id="noscript-node">private noscript value</noscript>
+
+  <div hidden><span id="hidden-node">private hidden value</span></div>
+  <div inert><span id="inert-node">private inert value</span></div>
+  <div aria-hidden="true"><span id="aria-hidden-node">private aria value</span></div>
+  <div style="display: none">
+    <span id="display-none-node">private display value</span>
+  </div>
+  <div style="visibility: hidden">
+    <span id="visibility-hidden-node">private visibility value</span>
+  </div>
+  <div style="visibility: collapse">
+    <span id="visibility-collapse-node">private collapse value</span>
+  </div>
+  <div style="opacity: 0">
+    <span id="opacity-zero-node">private opacity value</span>
+  </div>
+
+  <nav><p>private navigation text</p></nav>
+  <menu><li>private menu text</li></menu>
+  <form><textarea>private form text</textarea></form>
+</main>

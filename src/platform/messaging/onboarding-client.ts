@@ -10,6 +10,7 @@ import type { ListenerSet } from "./port";
 export interface OnboardingClientPort {
   postMessage(message: OnboardingCommand): void;
   onMessage: ListenerSet<(message: unknown) => void>;
+  onDisconnect: ListenerSet<() => void>;
   disconnect(): void;
 }
 
@@ -32,6 +33,11 @@ export class OnboardingClient {
     const onMessage = (input: unknown): void => listener(parseOnboardingEvent(input));
     this.port.onMessage.addListener(onMessage);
     return () => this.port.onMessage.removeListener(onMessage);
+  }
+
+  subscribeDisconnect(listener: () => void): () => void {
+    this.port.onDisconnect.addListener(listener);
+    return () => this.port.onDisconnect.removeListener(listener);
   }
 
   disconnect(): void {

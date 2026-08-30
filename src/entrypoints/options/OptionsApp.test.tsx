@@ -1,0 +1,441 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it } from "vitest";
+import type {
+  OnboardingCommand,
+  OnboardingEvent,
+} from "../../features/onboarding/contracts";
+import { DEFAULT_PREFERENCES } from "../../features/settings/settings";
+import type { OnboardingClientConnection } from "../../features/onboarding/use-onboarding";
+import type { ReaderAccessService } from "../../platform/permissions/reader-access";
+import type {
+  SettingsRepository,
+  StoredSettings,
+} from "../../platform/storage/settings-repository";
+import { RECOMMENDED_MODEL } from "../../shared/constants";
+import { OptionsApp, type OptionsAppDependencies } from "./OptionsApp";
+
+afterEach(cleanup);
+
+class FakeClient implements OnboardingClientConnection {
+  readonly sent: OnboardingCommand[] = [];
+  private readonly listeners = new Set<(event: OnboardingEvent) => void>();
+  private readonly disconnectListeners = new Set<() => void>();
+
+  send(command: OnboardingCommand): void {
+    this.sent.push(structuredClone(command));
+  }
+
+  subscribe(listener: (event: OnboardingEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  subscribeDisconnect(listener: () => void): () => void {
+    this.disconnectListeners.add(listener);
+    return () => this.disconnectListeners.delete(listener);
+  }
+
+  disconnect(): void {}
+
+  emit(event: OnboardingEvent): void {
+    for (const listener of this.listeners) listener(structuredClone(event));
+  }
+
+  suspend(): void {
+    for (const listener of this.disconnectListeners) listener();
+  }
+}
+
+function storedSettings(): StoredSettings {
+  return {
+    onboardingVersion: 1,
+    preferences: {
+      ...DEFAULT_PREFERENCES,
+      preferredLanguage: "Dutch",
+      blockedSites: [],
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+function createHarness(overrides: Partial<OptionsAppDependencies> = {}) {
+  const clients: FakeClient[] = [];
+  const updates: Array<Partial<typeof DEFAULT_PREFERENCES>> = [];
+  const settings = storedSettings();
+  const settingsRepository: SettingsRepository = {
+    async get() {
+      return structuredClone(settings);
+    },
+    async update(patch) {
+      updates.push(structuredClone(patch));
+      settings.preferences = { ...settings.preferences, ...patch };
+      return structuredClone(settings);
+    },
+    async markOnboardingComplete() {
+      return structuredClone(settings);
+    },
+  };
+  const readerAccess: Pick<ReaderAccessService, "enableAutomaticAccess"> = {
+    async enableAutomaticAccess() {
+      return { granted: false };
+    },
+  };
+  const dependencies: OptionsAppDependencies = {
+    createClient() {
+      const client = new FakeClient();
+      clients.push(client);
+      return client;
+    },
+    settingsRepository,
+    readerAccess,
+    getUiLanguage: () => "Dutch",
+    getOriginGuidance: () => ({
+      origin: "chrome-extension://runtime-id",
+      steps: [
+        { kind: "text", text: "Configure OLLAMA_ORIGINS with this value:" },
+        { kind: "code", text: "chrome-extension://runtime-id" },
+      ],
+    }),
+    ...overrides,
+  };
+  render(<OptionsApp dependencies={dependencies} />);
+  return {
+    clients,
+    updates,
+    get client() {
+      const client = clients.at(-1);
+      if (!client) throw new Error("The onboarding client was not opened.");
+      return client;
+    },
+  };
+}
+
+async function startRuntimeCheck(harness: ReturnType<typeof createHarness>) {
+  await userEvent.click(screen.getByRole("button", { name: /start local setup/i }));
+  expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
+  expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+}
+
+async function reachModelChoice(
+  harness: ReturnType<typeof createHarness>,
+  models: Extract<OnboardingEvent, { type: "models-result" }>["models"] = [],
+) {
+  await startRuntimeCheck(harness);
+  act(() => {
+    harness.client.emit({
+      type: "runtime-result",
+      health: { available: true, status: models.length ? "ready" : "model-required" },
+    });
+  });
+  expect(harness.client.sent.at(-1)).toEqual({ type: "list-models" });
+  act(() => harness.client.emit({ type: "models-result", models }));
+  expect(screen.getByRole("heading", { name: /choose a local model/i })).toBeVisible();
+}
+
+async function reachPreferences(harness: ReturnType<typeof createHarness>) {
+  await reachModelChoice(harness);
+  await userEvent.click(screen.getByRole("button", { name: /download qwen3:4b/i }));
+  act(() => {
+    harness.client.emit({
+      type: "download-progress",
+      progress: { type: "completed", model: RECOMMENDED_MODEL },
+    });
+  });
+  expect(
+    screen.getByRole("heading", { name: /choose how explanations read/i }),
+  ).toBeVisible();
+}
+
+async function reachPermission(harness: ReturnType<typeof createHarness>) {
+  await reachPreferences(harness);
+  const language = screen.getByRole("textbox", { name: /preferred language/i });
+  expect(language).toHaveValue("Dutch");
+  await userEvent.click(screen.getByRole("button", { name: /confirm preferences/i }));
+  expect(screen.getByRole("heading", { name: /nearby context/i })).toBeVisible();
+  const nearbyContext = screen.getByRole("checkbox", {
+    name: /include nearby context/i,
+  });
+  expect(nearbyContext).not.toBeChecked();
+  await userEvent.click(screen.getByRole("button", { name: /continue/i }));
+  expect(
+    screen.getByRole("heading", { name: /automatic selection actions/i }),
+  ).toBeVisible();
+}
+
+describe("options onboarding", () => {
+  it("starts at Welcome and exposes the real twelve-step setup sequence", async () => {
+    createHarness();
+
+    expect(
+      screen.getByRole("heading", { name: /understand text locally/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("progressbar", { name: /setup progress/i }),
+    ).toHaveAttribute("max", "12");
+    expect(screen.getByText(/text → localhost → explanation/i)).toBeVisible();
+    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+  });
+
+  it("shows checking, missing-runtime recovery, and only the official HTTPS installer", async () => {
+    const harness = createHarness();
+    await startRuntimeCheck(harness);
+
+    act(() => {
+      harness.client.emit({
+        type: "runtime-result",
+        health: {
+          available: false,
+          status: "unreachable",
+          error: {
+            code: "OLLAMA_UNREACHABLE",
+            message: "Ollama is not running.",
+            recoverable: true,
+          },
+        },
+      });
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Ollama is not running");
+    const install = screen.getByRole("link", { name: /install ollama/i });
+    expect(install).toHaveAttribute("href", "https://ollama.com/download");
+    expect(install).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    await userEvent.click(screen.getByRole("button", { name: /check again/i }));
+    expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+  });
+
+  it("renders exact-origin guidance as text and code", async () => {
+    const harness = createHarness();
+    await startRuntimeCheck(harness);
+
+    act(() => {
+      harness.client.emit({
+        type: "runtime-result",
+        health: {
+          available: false,
+          status: "origin-blocked",
+          message: "Ollama rejected this extension origin.",
+          secondaryAction: "show-origin-guidance",
+        },
+      });
+    });
+
+    expect(
+      screen.getByRole("heading", { name: /allow this extension in ollama/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("chrome-extension://runtime-id", { selector: "code" }),
+    ).toBeVisible();
+    expect(document.body.textContent).not.toContain("chrome-extension://*");
+  });
+
+  it("shows the recommended model name and size before explicit download confirmation", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness);
+
+    expect(screen.getByText("qwen3:4b")).toBeVisible();
+    expect(screen.getByText(/approximately 2.5 GB/i)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: /download qwen3:4b/i }));
+    expect(harness.client.sent.at(-1)).toEqual({
+      type: "download-model",
+      model: RECOMMENDED_MODEL,
+    });
+  });
+
+  it("labels code-specialized installed models and can use an installed model", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness, [
+      {
+        id: "qwen2.5-coder:7b",
+        displayName: "qwen2.5-coder:7b · Code-specialized",
+        sizeBytes: 4_700_000_000,
+      },
+    ]);
+
+    expect(screen.getByText(/code-specialized/i)).toBeVisible();
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /installed model/i }),
+      "qwen2.5-coder:7b",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /use installed model/i }));
+    expect(
+      screen.getByRole("heading", { name: /choose how explanations read/i }),
+    ).toBeVisible();
+  });
+
+  it("reports byte progress and exposes cancellation as a keyboard-operable button", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness);
+    await userEvent.click(screen.getByRole("button", { name: /download qwen3:4b/i }));
+    act(() => {
+      harness.client.emit({
+        type: "download-progress",
+        progress: {
+          type: "progress",
+          model: RECOMMENDED_MODEL,
+          completedBytes: 1_250_000_000,
+          totalBytes: 2_500_000_000,
+        },
+      });
+    });
+
+    expect(screen.getByRole("progressbar", { name: /model download/i })).toHaveValue(
+      1_250_000_000,
+    );
+    expect(screen.getByText(/1.25 GB of 2.50 GB/i)).toBeVisible();
+    const cancel = screen.getByRole("button", { name: /cancel download/i });
+    cancel.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(harness.client.sent.at(-1)).toEqual({ type: "cancel-download" });
+  });
+
+  it("requires language confirmation and keeps both privacy choices off by default", async () => {
+    const harness = createHarness();
+    await reachPreferences(harness);
+
+    expect(screen.getByRole("textbox", { name: /preferred language/i })).toHaveValue(
+      "Dutch",
+    );
+    expect(screen.getByRole("radio", { name: /everyday/i })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: /confirm preferences/i }));
+    const context = screen.getByRole("checkbox", { name: /include nearby context/i });
+    expect(context).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: /continue/i }));
+    expect(screen.getByText(/off unless you enable it/i)).toBeVisible();
+  });
+
+  it("requests page permission directly from Enable and carries denial into readiness", async () => {
+    const permission = deferred<{ granted: boolean }>();
+    let permissionCalls = 0;
+    const harness = createHarness({
+      readerAccess: {
+        enableAutomaticAccess() {
+          permissionCalls += 1;
+          return permission.promise;
+        },
+      },
+    });
+    await reachPermission(harness);
+
+    fireEvent.click(screen.getByRole("button", { name: /enable automatic actions/i }));
+    expect(permissionCalls).toBe(1);
+    await act(async () => permission.resolve({ granted: false }));
+
+    expect(
+      screen.getByRole("heading", { name: /testing your local model/i }),
+    ).toBeVisible();
+    expect(screen.getByText(/context menu or keyboard shortcut/i)).toBeVisible();
+    expect(harness.client.sent.at(-1)).toMatchObject({
+      type: "run-readiness",
+      preferences: { automaticToolbar: false, includeNearbyContext: false },
+    });
+  });
+
+  it("reports readiness warnings and persists preferences without private or generated content", async () => {
+    const harness = createHarness();
+    await reachPermission(harness);
+    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+
+    act(() => {
+      harness.client.emit({
+        type: "readiness-result",
+        result: {
+          status: "warning",
+          firstTokenMs: 31_000,
+          tokensPerSecond: 4.5,
+          warnings: ["slow-first-token", "slow-generation"],
+        },
+      });
+    });
+
+    expect(screen.getByRole("heading", { name: /^ready$/i })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(/slower than recommended/i);
+    await userEvent.click(screen.getByRole("button", { name: /finish setup/i }));
+    const completion = harness.client.sent.at(-1);
+    expect(completion).toMatchObject({
+      type: "complete-onboarding",
+      preferences: {
+        preferredLanguage: "Dutch",
+        automaticToolbar: false,
+        includeNearbyContext: false,
+      },
+    });
+    expect(JSON.stringify(completion)).not.toMatch(
+      /prompt|selectedText|selected text|readiness|output/i,
+    );
+  });
+
+  it("shows recoverable failures with a retry that repeats the interrupted action", async () => {
+    const harness = createHarness();
+    await startRuntimeCheck(harness);
+    act(() => {
+      harness.client.emit({
+        type: "onboarding-failed",
+        error: {
+          code: "PROVIDER_ERROR",
+          message: "The local check was interrupted.",
+          recoverable: true,
+        },
+      });
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The local check was interrupted",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+  });
+
+  it("reconnects and safely resumes the active command after worker suspension", async () => {
+    const harness = createHarness();
+    await startRuntimeCheck(harness);
+    act(() => harness.client.suspend());
+
+    await waitFor(() => expect(harness.clients).toHaveLength(2));
+    expect(harness.client.sent).toEqual([{ type: "check-runtime" }]);
+    expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
+  });
+
+  it("offers a local blocked-host editor after setup", async () => {
+    const harness = createHarness();
+    await reachPermission(harness);
+    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+    act(() => {
+      harness.client.emit({
+        type: "readiness-result",
+        result: {
+          status: "ready",
+          firstTokenMs: 900,
+          tokensPerSecond: 18,
+          warnings: [],
+        },
+      });
+    });
+
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /blocked host/i }),
+      "news.example",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /add blocked host/i }));
+    await waitFor(() =>
+      expect(harness.updates).toContainEqual({ blockedSites: ["news.example"] }),
+    );
+    expect(JSON.stringify(harness.updates)).not.toMatch(
+      /prompt|selected|readiness|output/i,
+    );
+  });
+});

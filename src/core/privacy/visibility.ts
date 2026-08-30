@@ -1,5 +1,6 @@
 const EXCLUDED_READING_ELEMENTS = new Set([
   "BUTTON",
+  "FORM",
   "INPUT",
   "NOSCRIPT",
   "OPTION",

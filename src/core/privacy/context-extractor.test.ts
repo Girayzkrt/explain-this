@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SelectionSnapshot } from "./selection";
 import { extractNearbyContext } from "./context-extractor";
 
@@ -25,6 +25,10 @@ function snapshot(anchorElement: Element, text: string): SelectionSnapshot {
 
 beforeEach(() => {
   document.body.innerHTML = FIXTURE;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("extractNearbyContext", () => {
@@ -77,6 +81,28 @@ describe("extractNearbyContext", () => {
     expect(result.text).toBe("Visible section text.");
     expect(result.sourceBlockCount).toBe(1);
     expect(result.text).not.toMatch(/secret|selected words/u);
+  });
+
+  it("excludes case-insensitive menu and navigation role tokens", () => {
+    document.body.innerHTML = `
+      <section>
+        Visible section text.
+        <div role="banner   NAVIGATION tablist">navigation role secret</div>
+        <div role="status MeNu presentation">menu role secret</div>
+        <span id="role-selection">selected words</span>
+      </section>
+    `;
+
+    const result = extractNearbyContext(
+      snapshot(element("role-selection"), "selected words"),
+      true,
+    );
+
+    expect(result).toEqual({
+      text: "Visible section text.",
+      estimatedTokens: 7,
+      sourceBlockCount: 1,
+    });
   });
 
   it("skips hidden adjacent blocks and takes the nearest visible reading sibling", () => {
@@ -141,6 +167,41 @@ describe("extractNearbyContext", () => {
     expect(result).toEqual({ text: "漢", estimatedTokens: 1, sourceBlockCount: 1 });
   });
 
+  it("stops at an oversized previous sibling without failing or reading the next one", () => {
+    document.body.innerHTML = `
+      <article>
+        <p>${"漢".repeat(401)}</p>
+        <p><span id="previous-order-selection">selected</span> local text</p>
+        <p>next text must not be accumulated after the previous block stops traversal</p>
+      </article>
+    `;
+
+    expect(
+      extractNearbyContext(
+        snapshot(element("previous-order-selection"), "selected"),
+        true,
+      ),
+    ).toEqual({ text: "local text", estimatedTokens: 4, sourceBlockCount: 1 });
+  });
+
+  it("returns accepted local and previous context when the next sibling is oversized", () => {
+    document.body.innerHTML = `
+      <article>
+        <p>accepted previous text</p>
+        <p><span id="next-order-selection">selected</span> local text</p>
+        <p>${"漢".repeat(401)}</p>
+      </article>
+    `;
+
+    expect(
+      extractNearbyContext(snapshot(element("next-order-selection"), "selected"), true),
+    ).toEqual({
+      text: "local text\n\naccepted previous text",
+      estimatedTokens: 11,
+      sourceBlockCount: 2,
+    });
+  });
+
   it("accepts one indivisible local block at the exact 400-token boundary", () => {
     document.body.innerHTML = `<p id="exact"><span id="exact-selection">selected</span>${"漢".repeat(400)}</p>`;
 
@@ -159,5 +220,43 @@ describe("extractNearbyContext", () => {
     expect(() =>
       extractNearbyContext(snapshot(element("oversized-selection"), "selected"), true),
     ).toThrowError(expect.objectContaining({ code: "CONTEXT_TOO_LARGE" }));
+  });
+
+  it("cuts off an oversized local text node before normalizing it or reading trailing nodes", () => {
+    const local = document.createElement("p");
+    const selection = document.createElement("span");
+    selection.id = "early-cutoff-selection";
+    selection.textContent = "selected";
+    const hostileText = "x".repeat(100_000);
+    const trailing = document.createTextNode("trailing text");
+    local.append(selection, document.createTextNode(hostileText), trailing);
+    document.body.replaceChildren(local);
+
+    let trailingReads = 0;
+    Object.defineProperty(trailing, "nodeValue", {
+      configurable: true,
+      get: () => {
+        trailingReads += 1;
+        return "trailing text";
+      },
+    });
+    const normalizedLengths: number[] = [];
+    const originalNormalize = String.prototype.normalize;
+    vi.spyOn(String.prototype, "normalize").mockImplementation(function (
+      this: string,
+      form,
+    ) {
+      normalizedLengths.push(this.length);
+      return originalNormalize.call(this, form);
+    });
+
+    expect(() =>
+      extractNearbyContext(
+        snapshot(element("early-cutoff-selection"), "selected"),
+        true,
+      ),
+    ).toThrowError(expect.objectContaining({ code: "CONTEXT_TOO_LARGE" }));
+    expect(trailingReads).toBe(0);
+    expect(Math.max(...normalizedLengths)).toBeLessThan(hostileText.length);
   });
 });

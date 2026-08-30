@@ -136,6 +136,17 @@ describe("captureSelection", () => {
     expect(captureSelection(externalSelection(range))).toBeUndefined();
   });
 
+  it.each([
+    ["paragraph text", "p"],
+    ["label text", "label"],
+  ])("rejects visible %s anywhere under form ancestry", (_label, tagName) => {
+    document.body.innerHTML = `<form><${tagName} id="form-descendant">private selected text</${tagName}></form>`;
+    const target = element("form-descendant");
+    const range = externalRange(target, "private selected text");
+
+    expect(captureSelection(externalSelection(range))).toBeUndefined();
+  });
+
   it("rejects a visible range that contains an excluded descendant", () => {
     selectContents(element("current-block"));
 

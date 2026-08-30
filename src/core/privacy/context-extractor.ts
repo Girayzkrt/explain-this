@@ -21,14 +21,9 @@ const READING_BLOCK_SELECTOR = [
   "article",
   "section",
 ].join(",");
-const CONTEXT_EXCLUSION_SELECTOR = [
-  "form",
-  "menu",
-  "nav",
-  "[role='menu']",
-  "[role='menubar']",
-  "[role='navigation']",
-].join(",");
+const EXCLUDED_CONTEXT_ELEMENTS = new Set(["FORM", "MENU", "NAV"]);
+const EXCLUDED_CONTEXT_ROLES = new Set(["menu", "menubar", "navigation"]);
+const BUDGET_CHECK_INTERVAL = 64;
 
 export interface NearbyContext {
   text: string;
@@ -40,10 +35,27 @@ function normalizeContextText(value: string): string {
   return value.normalize("NFC").replace(/\s+/gu, " ").trim();
 }
 
+function hasExcludedContextAncestry(element: Element): boolean {
+  let current: Element | null = element;
+
+  while (current !== null) {
+    if (EXCLUDED_CONTEXT_ELEMENTS.has(current.tagName)) return true;
+
+    const roles = current.getAttribute("role")?.trim().split(/\s+/u) ?? [];
+    if (roles.some((role) => EXCLUDED_CONTEXT_ROLES.has(role.toLowerCase()))) {
+      return true;
+    }
+
+    current = current.parentElement;
+  }
+
+  return false;
+}
+
 function isAllowedReadingBlock(element: Element): boolean {
   return (
     element.matches(READING_BLOCK_SELECTOR) &&
-    element.closest(CONTEXT_EXCLUSION_SELECTOR) === null &&
+    !hasExcludedContextAncestry(element) &&
     isVisibleReadingNode(element)
   );
 }
@@ -68,8 +80,15 @@ function nearestReadingSibling(
   return undefined;
 }
 
-function visibleBlockText(block: Element): string {
-  const parts: string[] = [];
+interface VisibleBlockText {
+  text: string;
+  exceedsLimit: boolean;
+}
+
+function visibleBlockText(block: Element, tokenLimit: number): VisibleBlockText {
+  let compactText = "";
+  let endsInWhitespace = false;
+  let charactersSinceBudgetCheck = 0;
   const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();
 
@@ -77,15 +96,38 @@ function visibleBlockText(block: Element): string {
     const parent = node.parentElement;
     if (
       parent !== null &&
-      parent.closest(CONTEXT_EXCLUSION_SELECTOR) === null &&
+      !hasExcludedContextAncestry(parent) &&
       isVisibleReadingNode(node)
     ) {
-      parts.push(node.nodeValue ?? "");
+      for (const character of node.nodeValue ?? "") {
+        const isWhitespace = /\s/u.test(character);
+        if (isWhitespace) {
+          if (compactText.length === 0 || endsInWhitespace) {
+            endsInWhitespace = true;
+            continue;
+          }
+          compactText += " ";
+          endsInWhitespace = true;
+        } else {
+          compactText += character;
+          endsInWhitespace = false;
+        }
+
+        charactersSinceBudgetCheck += 1;
+        if (charactersSinceBudgetCheck >= BUDGET_CHECK_INTERVAL) {
+          const normalized = normalizeContextText(compactText);
+          if (estimateTokens(normalized) > tokenLimit) {
+            return { text: "", exceedsLimit: true };
+          }
+          charactersSinceBudgetCheck = 0;
+        }
+      }
     }
     node = walker.nextNode();
   }
 
-  return normalizeContextText(parts.join(""));
+  const text = normalizeContextText(compactText);
+  return { text, exceedsLimit: estimateTokens(text) > tokenLimit };
 }
 
 function withoutSelectedText(blockText: string, selectedText: string): string {
@@ -124,13 +166,24 @@ export function extractNearbyContext(
 
   for (const candidate of candidates) {
     if (candidate === undefined) continue;
-    const visibleText = visibleBlockText(candidate);
-    const text =
-      candidate === localBlock
-        ? withoutSelectedText(visibleText, snapshot.text)
-        : visibleText;
+    const isLocalBlock = candidate === localBlock;
+    const traversalLimit = isLocalBlock
+      ? MAX_NEARBY_CONTEXT_TOKENS + estimateTokens(snapshot.text) + 2
+      : MAX_NEARBY_CONTEXT_TOKENS;
+    const visible = visibleBlockText(candidate, traversalLimit);
+    if (visible.exceedsLimit) {
+      if (isLocalBlock) throw contextTooLarge();
+      break;
+    }
+
+    const text = isLocalBlock
+      ? withoutSelectedText(visible.text, snapshot.text)
+      : visible.text;
     if (text.length === 0) continue;
-    if (estimateTokens(text) > MAX_NEARBY_CONTEXT_TOKENS) throw contextTooLarge();
+    if (estimateTokens(text) > MAX_NEARBY_CONTEXT_TOKENS) {
+      if (isLocalBlock) throw contextTooLarge();
+      break;
+    }
 
     const combined = [...accepted, text].join("\n\n");
     if (estimateTokens(combined) > MAX_NEARBY_CONTEXT_TOKENS) break;

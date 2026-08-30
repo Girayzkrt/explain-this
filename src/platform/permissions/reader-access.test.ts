@@ -15,6 +15,46 @@ describe("ReaderAccessController", () => {
     expect(browser.registeredMatches).toEqual([]);
   });
 
+  it("injects again when a tab navigates to a different normalized page URL", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const access = new ReaderAccessController(browser);
+
+    await access.injectForExplicitAction(42, "https://docs.example/first");
+    await access.injectForExplicitAction(42, "https://docs.example/second");
+
+    expect(browser.executedTabs).toEqual([42, 42]);
+  });
+
+  it("allows a same-URL reload to inject again after lifecycle invalidation", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const access = new ReaderAccessController(browser);
+
+    await access.injectForExplicitAction(42, "https://docs.example/article");
+    access.invalidateExplicitInjection(42);
+    await access.injectForExplicitAction(42, "https://docs.example/article");
+
+    expect(browser.executedTabs).toEqual([42, 42]);
+  });
+
+  it("shares concurrent page injection and clears the failed work for retry", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const failure = new Error("script injection failed");
+    browser.executeFailures.push(failure);
+    const access = new ReaderAccessController(browser);
+
+    const results = await Promise.allSettled([
+      access.injectForExplicitAction(42, "https://docs.example/article"),
+      access.injectForExplicitAction(42, "https://docs.example/article"),
+    ]);
+
+    expect(results).toEqual([
+      { status: "rejected", reason: failure },
+      { status: "rejected", reason: failure },
+    ]);
+    await access.injectForExplicitAction(42, "https://docs.example/article");
+    expect(browser.executedTabs).toEqual([42, 42]);
+  });
+
   it.each([0, -1, 1.5, Number.NaN])(
     "rejects invalid tab ID %s before injection",
     async (tabId) => {
@@ -103,6 +143,45 @@ describe("ReaderAccessController", () => {
     await new ReaderAccessController(browser).restoreAutomaticAccess();
 
     expect(browser.registeredMatches).toEqual([AUTOMATIC_READER_ORIGINS]);
+  });
+
+  it("shares concurrent enable and restore registration work", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const access = new ReaderAccessController(browser);
+
+    await expect(
+      Promise.all([
+        access.enableAutomaticAccess(),
+        access.enableAutomaticAccess(),
+        access.restoreAutomaticAccess(),
+      ]),
+    ).resolves.toEqual([{ granted: true }, { granted: true }, undefined]);
+
+    expect(browser.requestCalls).toEqual([AUTOMATIC_READER_ORIGINS]);
+    expect(browser.registeredMatches).toEqual([AUTOMATIC_READER_ORIGINS]);
+  });
+
+  it("shares failed registration and clears it so a later restore retries", async () => {
+    const browser = new FakeReaderBrowserApi();
+    browser.grantOrigins(AUTOMATIC_READER_ORIGINS);
+    const failure = new Error("registration failed");
+    browser.registrationFailures.push(failure);
+    const access = new ReaderAccessController(browser);
+
+    const results = await Promise.allSettled([
+      access.enableAutomaticAccess(),
+      access.restoreAutomaticAccess(),
+    ]);
+
+    expect(results).toEqual([
+      { status: "rejected", reason: failure },
+      { status: "rejected", reason: failure },
+    ]);
+    await access.restoreAutomaticAccess();
+    expect(browser.registeredMatches).toEqual([
+      AUTOMATIC_READER_ORIGINS,
+      AUTOMATIC_READER_ORIGINS,
+    ]);
   });
 
   it.each(["chrome://settings", "about:blank", "file:///C:/notes.txt"])(

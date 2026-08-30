@@ -11,6 +11,8 @@ export class FakeReaderBrowserApi implements ReaderBrowserApi {
   readonly registeredMatches: string[][] = [];
   unregisterCalls = 0;
   requestedOriginsGranted = true;
+  readonly executeFailures: Error[] = [];
+  readonly registrationFailures: Error[] = [];
   private readonly grantedOrigins = new Set<string>();
   private registration: RegisteredContentScript | undefined;
 
@@ -37,6 +39,8 @@ export class FakeReaderBrowserApi implements ReaderBrowserApi {
 
   async executeReader(tabId: number): Promise<void> {
     this.executedTabs.push(tabId);
+    const failure = this.executeFailures.shift();
+    if (failure) throw failure;
   }
 
   async getReaderRegistration(): Promise<RegisteredContentScript | undefined> {
@@ -45,6 +49,8 @@ export class FakeReaderBrowserApi implements ReaderBrowserApi {
 
   async registerReader(matches: string[]): Promise<void> {
     this.registeredMatches.push([...matches]);
+    const failure = this.registrationFailures.shift();
+    if (failure) throw failure;
     this.registration = {
       id: "explain-this-reader",
       matches: [...matches],

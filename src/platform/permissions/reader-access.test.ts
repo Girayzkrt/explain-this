@@ -36,6 +36,54 @@ describe("ReaderAccessController", () => {
     expect(browser.executedTabs).toEqual([42, 42]);
   });
 
+  it("does not let a stale successful injection suppress a same-URL reload", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const staleExecution = browser.deferNextReaderExecution();
+    const access = new ReaderAccessController(browser);
+
+    const staleInjection = access.injectForExplicitAction(
+      42,
+      "https://docs.example/article",
+    );
+    await staleExecution.waitUntilStarted();
+    access.invalidateExplicitInjection(42);
+    staleExecution.resolve();
+    await staleInjection;
+
+    await access.injectForExplicitAction(42, "https://docs.example/article");
+    expect(browser.executedTabs).toEqual([42, 42]);
+  });
+
+  it("keeps a newer injection in flight when a stale generation fails", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const staleExecution = browser.deferNextReaderExecution();
+    const access = new ReaderAccessController(browser);
+
+    const staleInjection = access.injectForExplicitAction(
+      42,
+      "https://docs.example/article",
+    );
+    await staleExecution.waitUntilStarted();
+    access.invalidateExplicitInjection(42);
+
+    const newerExecution = browser.deferNextReaderExecution();
+    const newerInjection = access.injectForExplicitAction(
+      42,
+      "https://docs.example/article",
+    );
+    await newerExecution.waitUntilStarted();
+    staleExecution.reject(new Error("stale injection failed"));
+    await expect(staleInjection).rejects.toThrow("stale injection failed");
+
+    const sharedNewerInjection = access.injectForExplicitAction(
+      42,
+      "https://docs.example/article",
+    );
+    expect(browser.executedTabs).toEqual([42, 42]);
+    newerExecution.resolve();
+    await Promise.all([newerInjection, sharedNewerInjection]);
+  });
+
   it("shares concurrent page injection and clears the failed work for retry", async () => {
     const browser = new FakeReaderBrowserApi();
     const failure = new Error("script injection failed");

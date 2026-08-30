@@ -22,6 +22,7 @@ export interface ReaderAccessService {
 export class ReaderAccessController implements ReaderAccessService {
   private readonly explicitlyInjectedPages = new Set<string>();
   private readonly explicitInjectionInFlight = new Map<string, Promise<void>>();
+  private readonly explicitInjectionGenerations = new Map<number, number>();
   private automaticEnableInFlight: Promise<{ granted: boolean }> | undefined;
   private automaticRegistrationInFlight: Promise<void> | undefined;
 
@@ -34,6 +35,7 @@ export class ReaderAccessController implements ReaderAccessService {
     if (!normalizedPageUrl) throw new ReaderAccessError("UNSUPPORTED_PAGE");
 
     const pageKey = `${tabId}\u0000${normalizedPageUrl}`;
+    const generation = this.getExplicitInjectionGeneration(tabId);
     if (this.explicitlyInjectedPages.has(pageKey)) return;
 
     const inFlight = this.explicitInjectionInFlight.get(pageKey);
@@ -42,7 +44,8 @@ export class ReaderAccessController implements ReaderAccessService {
     const injection = Promise.resolve()
       .then(() => this.browser.executeReader(tabId))
       .then(() => {
-        this.explicitlyInjectedPages.add(pageKey);
+        if (this.getExplicitInjectionGeneration(tabId) === generation)
+          this.explicitlyInjectedPages.add(pageKey);
       });
     this.explicitInjectionInFlight.set(pageKey, injection);
 
@@ -55,6 +58,10 @@ export class ReaderAccessController implements ReaderAccessService {
   }
 
   invalidateExplicitInjection(tabId: number): void {
+    this.explicitInjectionGenerations.set(
+      tabId,
+      this.getExplicitInjectionGeneration(tabId) + 1,
+    );
     const keyPrefix = `${tabId}\u0000`;
     for (const pageKey of this.explicitlyInjectedPages) {
       if (pageKey.startsWith(keyPrefix)) this.explicitlyInjectedPages.delete(pageKey);
@@ -117,6 +124,10 @@ export class ReaderAccessController implements ReaderAccessService {
   private async registerAutomaticReader(): Promise<void> {
     if (await this.browser.getReaderRegistration()) return;
     await this.browser.registerReader([...AUTOMATIC_READER_ORIGINS]);
+  }
+
+  private getExplicitInjectionGeneration(tabId: number): number {
+    return this.explicitInjectionGenerations.get(tabId) ?? 0;
   }
 }
 

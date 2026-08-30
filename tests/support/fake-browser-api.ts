@@ -3,6 +3,35 @@ import type {
   RegisteredContentScript,
 } from "../../src/platform/permissions/browser-api";
 
+export interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (reason?: unknown) => void;
+  waitUntilStarted(): Promise<void>;
+  markStarted(): void;
+}
+
+const createDeferred = <T>(): Deferred<T> => {
+  let resolvePromise!: (value: T) => void;
+  let rejectPromise!: (reason?: unknown) => void;
+  let resolveStarted!: () => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  const started = new Promise<void>((resolve) => {
+    resolveStarted = resolve;
+  });
+
+  return {
+    promise,
+    resolve: resolvePromise,
+    reject: rejectPromise,
+    waitUntilStarted: () => started,
+    markStarted: resolveStarted,
+  };
+};
+
 export class FakeReaderBrowserApi implements ReaderBrowserApi {
   readonly executedTabs: number[] = [];
   readonly containsRequests: string[][] = [];
@@ -13,11 +42,18 @@ export class FakeReaderBrowserApi implements ReaderBrowserApi {
   requestedOriginsGranted = true;
   readonly executeFailures: Error[] = [];
   readonly registrationFailures: Error[] = [];
+  private readonly readerExecutionDeferrals: Deferred<void>[] = [];
   private readonly grantedOrigins = new Set<string>();
   private registration: RegisteredContentScript | undefined;
 
   grantOrigins(origins: string[]): void {
     for (const origin of origins) this.grantedOrigins.add(origin);
+  }
+
+  deferNextReaderExecution(): Deferred<void> {
+    const deferred = createDeferred<void>();
+    this.readerExecutionDeferrals.push(deferred);
+    return deferred;
   }
 
   async containsOrigins(origins: string[]): Promise<boolean> {
@@ -41,6 +77,11 @@ export class FakeReaderBrowserApi implements ReaderBrowserApi {
     this.executedTabs.push(tabId);
     const failure = this.executeFailures.shift();
     if (failure) throw failure;
+    const deferred = this.readerExecutionDeferrals.shift();
+    if (deferred) {
+      deferred.markStarted();
+      await deferred.promise;
+    }
   }
 
   async getReaderRegistration(): Promise<RegisteredContentScript | undefined> {

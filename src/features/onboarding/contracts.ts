@@ -58,7 +58,7 @@ const PublicErrorCodeSchema = z.enum([
 const PublicErrorShapeSchema = z
   .object({
     code: PublicErrorCodeSchema,
-    message: z.string(),
+    message: z.string().max(500),
     recoverable: z.boolean(),
   })
   .strict();
@@ -84,20 +84,22 @@ const ModelInfoSchema = z
   .strict();
 
 const ModelDownloadEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("started"), model: z.string() }).strict(),
+  z.object({ type: z.literal("started"), model: z.string().min(1).max(200) }).strict(),
   z
     .object({
       type: z.literal("progress"),
-      model: z.string(),
+      model: z.string().min(1).max(200),
       completedBytes: z.number().nonnegative(),
       totalBytes: z.number().nonnegative().optional(),
     })
     .strict(),
-  z.object({ type: z.literal("completed"), model: z.string() }).strict(),
+  z
+    .object({ type: z.literal("completed"), model: z.string().min(1).max(200) })
+    .strict(),
   z
     .object({
       type: z.literal("failed"),
-      model: z.string(),
+      model: z.string().min(1).max(200),
       error: PublicErrorShapeSchema,
     })
     .strict(),

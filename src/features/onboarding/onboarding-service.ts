@@ -52,8 +52,13 @@ function toPublicError(error: unknown): PublicErrorShape {
   };
 }
 
+function normalizeRuntimeError(error: PublicErrorShape): PublicErrorShape {
+  if (error.code !== "CONNECTION_TIMEOUT") return error;
+  return { ...error, code: "OLLAMA_UNREACHABLE" };
+}
+
 function runtimeFailure(error: unknown): ProviderHealth {
-  const safe = toPublicError(error);
+  const safe = normalizeRuntimeError(toPublicError(error));
   if (safe.code === "OLLAMA_ORIGIN_BLOCKED") {
     return {
       available: false,
@@ -63,7 +68,7 @@ function runtimeFailure(error: unknown): ProviderHealth {
       secondaryAction: "show-origin-guidance",
     };
   }
-  if (safe.code === "OLLAMA_UNREACHABLE" || safe.code === "CONNECTION_TIMEOUT") {
+  if (safe.code === "OLLAMA_UNREACHABLE") {
     return {
       available: false,
       status: "unreachable",
@@ -77,6 +82,27 @@ function runtimeFailure(error: unknown): ProviderHealth {
     status: "error",
     message: "Ollama could not be checked.",
     error: safe,
+  };
+}
+
+function unavailableRuntimeHealth(health: ProviderHealth): ProviderHealth {
+  const error = health.error ? normalizeRuntimeError(health.error) : undefined;
+  if (health.status === undefined && error !== undefined) {
+    return runtimeFailure(
+      new PublicError(error.code, error.message, error.recoverable),
+    );
+  }
+
+  const normalized = error === undefined ? health : { ...health, error };
+  if (health.status === "origin-blocked" || health.status === "unreachable") {
+    return { ...normalized, secondaryAction: "show-origin-guidance" };
+  }
+  if (health.status !== undefined) return normalized;
+  return {
+    ...normalized,
+    status: "unreachable",
+    message: health.message ?? "Ollama is not reachable.",
+    secondaryAction: "show-origin-guidance",
   };
 }
 
@@ -95,23 +121,29 @@ function isCodeSpecialized(model: string, family?: string): boolean {
 }
 
 export class OnboardingService {
-  private downloadController: AbortController | undefined;
-  private readinessController: AbortController | undefined;
-
   constructor(private readonly dependencies: OnboardingServiceDependencies) {}
 
   handle(port: PortLike<OnboardingEvent>): void {
     let disconnected = false;
-    const post = (message: OnboardingEvent): void => {
-      if (disconnected) return;
+    type Operation = {
+      generation: number;
+      kind: Exclude<OnboardingCommand["type"], "cancel-download">;
+      controller: AbortController;
+    };
+    let generation = 0;
+    let activeOperation: Operation | undefined;
+    const owns = (operation?: Operation): boolean =>
+      !disconnected && (operation === undefined || activeOperation === operation);
+    const post = (message: OnboardingEvent, operation?: Operation): void => {
+      if (!owns(operation)) return;
       try {
         port.postMessage(message);
       } catch {
         // Runtime disconnects are handled by the port lifecycle listener.
       }
     };
-    const fail = (error: unknown): void =>
-      post({ type: "onboarding-failed", error: toPublicError(error) });
+    const fail = (error: unknown, operation?: Operation): void =>
+      post({ type: "onboarding-failed", error: toPublicError(error) }, operation);
     const onMessage = (input: unknown): void => {
       let command: OnboardingCommand;
       try {
@@ -122,16 +154,31 @@ export class OnboardingService {
       }
 
       if (command.type === "cancel-download") {
-        this.downloadController?.abort();
+        if (activeOperation?.kind === "download-model") {
+          activeOperation.controller.abort();
+        }
         return;
       }
-      void this.dispatch(command, post).catch(fail);
+
+      const operation: Operation = {
+        generation: (generation += 1),
+        kind: command.type,
+        controller: new AbortController(),
+      };
+      activeOperation?.controller.abort();
+      activeOperation = operation;
+      const ownedPost = (message: OnboardingEvent): void => post(message, operation);
+      void this.dispatch(command, operation.controller.signal, ownedPost)
+        .catch((error: unknown) => fail(error, operation))
+        .finally(() => {
+          if (activeOperation === operation) activeOperation = undefined;
+        });
     };
     const onDisconnect = (): void => {
       if (disconnected) return;
       disconnected = true;
-      this.downloadController?.abort();
-      this.readinessController?.abort();
+      activeOperation?.controller.abort();
+      activeOperation = undefined;
       port.onMessage.removeListener(onMessage);
       port.onDisconnect.removeListener(onDisconnect);
     };
@@ -143,20 +190,21 @@ export class OnboardingService {
 
   private async dispatch(
     command: Exclude<OnboardingCommand, { type: "cancel-download" }>,
+    signal: AbortSignal,
     post: (message: OnboardingEvent) => void,
   ): Promise<void> {
     switch (command.type) {
       case "check-runtime":
-        post({ type: "runtime-result", health: await this.checkRuntime() });
+        post({ type: "runtime-result", health: await this.checkRuntime(signal) });
         return;
       case "list-models":
-        post({ type: "models-result", models: await this.listModels() });
+        post({ type: "models-result", models: await this.listModels(signal) });
         return;
       case "download-model":
-        await this.download(command.model, post);
+        await this.download(command.model, signal, post);
         return;
       case "run-readiness":
-        await this.readiness(command.model, command.preferences, post);
+        await this.readiness(command.model, command.preferences, signal, post);
         return;
       case "complete-onboarding":
         await this.dependencies.settingsRepository.update(command.preferences);
@@ -166,19 +214,13 @@ export class OnboardingService {
     }
   }
 
-  private async checkRuntime(): Promise<ProviderHealth> {
-    const controller = new AbortController();
+  private async checkRuntime(signal: AbortSignal): Promise<ProviderHealth> {
     try {
-      const health = await this.dependencies.provider.checkHealth(controller.signal);
+      const health = await this.dependencies.provider.checkHealth(signal);
       if (!health.available) {
-        return {
-          available: false,
-          status: "unreachable",
-          message: health.message ?? "Ollama is not reachable.",
-          secondaryAction: "show-origin-guidance",
-        };
+        return unavailableRuntimeHealth(health);
       }
-      const models = await this.dependencies.provider.listModels(controller.signal);
+      const models = await this.dependencies.provider.listModels(signal);
       if (models.length === 0) {
         return {
           available: true,
@@ -192,14 +234,13 @@ export class OnboardingService {
     }
   }
 
-  private async listModels(): Promise<ModelInfo[]> {
-    const controller = new AbortController();
-    const models = await this.dependencies.provider.listModels(controller.signal);
+  private async listModels(signal: AbortSignal): Promise<ModelInfo[]> {
+    const models = await this.dependencies.provider.listModels(signal);
     return Promise.all(
       models.map(async (model) => {
         const details = await this.dependencies.provider.getModelDetails(
           model.id,
-          controller.signal,
+          signal,
         );
         if (!isCodeSpecialized(model.id, details.family)) return model;
         return { ...model, displayName: `${model.displayName} · Code-specialized` };
@@ -207,63 +248,51 @@ export class OnboardingService {
     );
   }
 
+  private async validateModel(model: string, signal: AbortSignal): Promise<void> {
+    if (model === RECOMMENDED_MODEL) return;
+    const installed = await this.dependencies.provider.listModels(signal);
+    if (!installed.some((candidate) => candidate.id === model)) {
+      throw new PublicError(
+        "INVALID_REQUEST",
+        "The selected model is not in the local model library.",
+        false,
+      );
+    }
+  }
+
   private async download(
     model: string,
+    signal: AbortSignal,
     post: (message: OnboardingEvent) => void,
   ): Promise<void> {
-    const validationController = new AbortController();
-    if (model !== RECOMMENDED_MODEL) {
-      const installed = await this.dependencies.provider.listModels(
-        validationController.signal,
-      );
-      if (!installed.some((candidate) => candidate.id === model)) {
-        throw new PublicError(
-          "INVALID_REQUEST",
-          "The selected model is not in the local model library.",
-          false,
-        );
+    await this.validateModel(model, signal);
+    await this.dependencies.modelGate.runExclusive(signal, async () => {
+      for await (const progress of this.dependencies.provider.downloadModel(
+        model,
+        signal,
+      )) {
+        post({ type: "download-progress", progress });
       }
-    }
-
-    this.downloadController?.abort();
-    const controller = new AbortController();
-    this.downloadController = controller;
-    try {
-      await this.dependencies.modelGate.runExclusive(controller.signal, async () => {
-        for await (const progress of this.dependencies.provider.downloadModel(
-          model,
-          controller.signal,
-        )) {
-          post({ type: "download-progress", progress });
-        }
-      });
-    } finally {
-      if (this.downloadController === controller) this.downloadController = undefined;
-    }
+    });
   }
 
   private async readiness(
     model: string,
     preferences: Parameters<typeof runReadiness>[2],
+    signal: AbortSignal,
     post: (message: OnboardingEvent) => void,
   ): Promise<void> {
-    this.readinessController?.abort();
-    const controller = new AbortController();
-    this.readinessController = controller;
-    try {
-      const result = await runReadiness(
-        {
-          provider: this.dependencies.provider,
-          modelGate: this.dependencies.modelGate,
-          now: this.dependencies.now,
-        },
-        model,
-        preferences,
-        controller.signal,
-      );
-      post({ type: "readiness-result", result });
-    } finally {
-      if (this.readinessController === controller) this.readinessController = undefined;
-    }
+    await this.validateModel(model, signal);
+    const result = await runReadiness(
+      {
+        provider: this.dependencies.provider,
+        modelGate: this.dependencies.modelGate,
+        now: this.dependencies.now,
+      },
+      model,
+      preferences,
+      signal,
+    );
+    post({ type: "readiness-result", result });
   }
 }

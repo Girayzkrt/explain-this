@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PublicError } from "../../core/requests/public-error";
 import { ModelConcurrencyGate } from "../../core/requests/model-concurrency-gate";
 import { RequestCoordinator } from "../reader/request-coordinator";
@@ -66,7 +66,10 @@ class FakeProvider implements DownloadableModelProvider {
   models: ModelInfo[] = [{ id: RECOMMENDED_MODEL, displayName: RECOMMENDED_MODEL }];
   details = new Map<string, ModelDetails>();
   readonly chatCalls: ChatCall[] = [];
+  readonly listCalls: AbortSignal[] = [];
   readonly downloadCalls: Array<{ model: string; signal: AbortSignal }> = [];
+  listPlan: (signal: AbortSignal) => Promise<ModelInfo[]> = async () =>
+    structuredClone(this.models);
   chatPlan: (call: ChatCall) => AsyncIterable<StreamEvent> = async function* (call) {
     yield { type: "started", requestId: call.requestId };
     yield { type: "delta", requestId: call.requestId, sequence: 0, text: "Ready." };
@@ -89,8 +92,9 @@ class FakeProvider implements DownloadableModelProvider {
     if (this.healthError) throw this.healthError;
     return this.health;
   }
-  async listModels(): Promise<ModelInfo[]> {
-    return structuredClone(this.models);
+  async listModels(signal: AbortSignal): Promise<ModelInfo[]> {
+    this.listCalls.push(signal);
+    return this.listPlan(signal);
   }
   async getModelDetails(model: string): Promise<ModelDetails> {
     return this.details.get(model) ?? { id: model, displayName: model };
@@ -155,6 +159,14 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((settlePromise) => {
+    resolve = settlePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("onboarding service", () => {
   it.each([
     [undefined, "ready"],
@@ -179,6 +191,70 @@ describe("onboarding service", () => {
     expect(JSON.stringify(harness.port.posted)).not.toContain(
       "private provider details",
     );
+  });
+
+  it("normalizes a runtime connection timeout to the public unreachable error", async () => {
+    const harness = createHarness();
+    harness.provider.healthError = new PublicError(
+      "CONNECTION_TIMEOUT",
+      "The connection to Ollama timed out.",
+      true,
+    );
+
+    harness.port.send({ type: "check-runtime" });
+    await settle();
+
+    expect(harness.port.posted).toEqual([
+      {
+        type: "runtime-result",
+        health: {
+          available: false,
+          status: "unreachable",
+          message: "The connection to Ollama timed out.",
+          error: {
+            code: "OLLAMA_UNREACHABLE",
+            message: "The connection to Ollama timed out.",
+            recoverable: true,
+          },
+          secondaryAction: "show-origin-guidance",
+        },
+      },
+    ]);
+  });
+
+  it("preserves an explicit unavailable origin-blocked provider health result", async () => {
+    const harness = createHarness();
+    harness.provider.health = {
+      available: false,
+      status: "origin-blocked",
+      message: "Ollama rejected this extension origin.",
+      error: {
+        code: "OLLAMA_ORIGIN_BLOCKED",
+        message: "Ollama rejected this extension origin.",
+        recoverable: true,
+      },
+      secondaryAction: "show-origin-guidance",
+    };
+
+    harness.port.send({ type: "check-runtime" });
+    await settle();
+
+    expect(harness.port.posted).toEqual([
+      {
+        type: "runtime-result",
+        health: {
+          available: false,
+          status: "origin-blocked",
+          message: "Ollama rejected this extension origin.",
+          error: {
+            code: "OLLAMA_ORIGIN_BLOCKED",
+            message: "Ollama rejected this extension origin.",
+            recoverable: true,
+          },
+          secondaryAction: "show-origin-guidance",
+        },
+      },
+    ]);
   });
 
   it("reports model-required when a healthy runtime has no installed models", async () => {
@@ -292,6 +368,93 @@ describe("onboarding service", () => {
     });
   });
 
+  it("owns an alternate-model download before validation so cancel prevents pull", async () => {
+    const harness = createHarness();
+    const releaseValidation = deferred<void>();
+    let validationSignal: AbortSignal | undefined;
+    harness.provider.models = [{ id: "llama3.2:3b", displayName: "Llama" }];
+    harness.provider.listPlan = async (signal) => {
+      validationSignal = signal;
+      await releaseValidation.promise;
+      return structuredClone(harness.provider.models);
+    };
+
+    harness.port.send({ type: "download-model", model: "llama3.2:3b" });
+    await vi.waitFor(() => expect(validationSignal).toBeDefined());
+    harness.port.send({ type: "cancel-download" });
+    const wasAbortedDuringValidation = validationSignal?.aborted;
+    releaseValidation.resolve();
+    await settle();
+
+    expect(wasAbortedDuringValidation).toBe(true);
+    expect(harness.provider.downloadCalls).toHaveLength(0);
+  });
+
+  it("does not let one onboarding port replace or cancel another port's download", async () => {
+    const harness = createHarness();
+    const secondPort = new FakePort();
+    const releaseFirst = deferred<void>();
+    harness.service.handle(secondPort);
+    harness.provider.downloadPlan = async function* (model) {
+      if (model === RECOMMENDED_MODEL) await releaseFirst.promise;
+      yield { type: "completed", model };
+    };
+
+    harness.port.send({ type: "download-model", model: RECOMMENDED_MODEL });
+    await vi.waitFor(() => expect(harness.provider.downloadCalls).toHaveLength(1));
+    secondPort.send({ type: "download-model", model: RECOMMENDED_MODEL });
+    secondPort.send({ type: "cancel-download" });
+    const firstPortWasAborted = harness.provider.downloadCalls[0]?.signal.aborted;
+    releaseFirst.resolve();
+    await settle();
+
+    expect(firstPortWasAborted).toBe(false);
+  });
+
+  it("suppresses late progress and failure from a replaced download generation", async () => {
+    const harness = createHarness();
+    const releaseStaleDownload = deferred<void>();
+    harness.provider.models = [{ id: "installed:latest", displayName: "Installed" }];
+    harness.provider.downloadPlan = async function* (model) {
+      yield { type: "started", model };
+      if (model === RECOMMENDED_MODEL) {
+        await releaseStaleDownload.promise;
+        yield {
+          type: "progress",
+          model,
+          completedBytes: 1,
+          totalBytes: 10,
+        };
+        throw new PublicError("MODEL_DOWNLOAD_FAILED", "stale download failure", true);
+      }
+      yield { type: "completed", model };
+    };
+
+    harness.port.send({ type: "download-model", model: RECOMMENDED_MODEL });
+    await vi.waitFor(() => expect(harness.provider.downloadCalls).toHaveLength(1));
+    harness.port.send({ type: "download-model", model: "installed:latest" });
+    await settle();
+    releaseStaleDownload.resolve();
+    await vi.waitFor(() => expect(harness.provider.downloadCalls).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(harness.port.posted).toContainEqual({
+        type: "download-progress",
+        progress: { type: "completed", model: "installed:latest" },
+      }),
+    );
+
+    expect(harness.port.posted).not.toContainEqual({
+      type: "download-progress",
+      progress: {
+        type: "progress",
+        model: RECOMMENDED_MODEL,
+        completedBytes: 1,
+        totalBytes: 10,
+      },
+    });
+    expect(JSON.stringify(harness.port.posted)).not.toContain("stale download failure");
+  });
+
   it("runs one synthetic Explain request and derives local readiness metrics", async () => {
     const times = [1_000, 2_250];
     const harness = createHarness({ now: () => times.shift() ?? 2_250 });
@@ -322,6 +485,69 @@ describe("onboarding service", () => {
         warnings: [],
       },
     });
+  });
+
+  it("rejects readiness for a model outside the exact recommended-or-installed boundary", async () => {
+    const harness = createHarness();
+    harness.provider.models = [{ id: "llama3.2:3b", displayName: "Llama" }];
+
+    harness.port.send({
+      type: "run-readiness",
+      model: "llama3.2:3b-remote",
+      preferences: DEFAULT_PREFERENCES,
+    });
+    await settle();
+
+    expect(harness.provider.chatCalls).toHaveLength(0);
+    expect(harness.port.posted).toEqual([
+      {
+        type: "onboarding-failed",
+        error: {
+          code: "INVALID_REQUEST",
+          message: "The selected model is not in the local model library.",
+          recoverable: false,
+        },
+      },
+    ]);
+  });
+
+  it("suppresses a late readiness result after a newer generation replaces it", async () => {
+    let currentTime = 0;
+    const harness = createHarness({ now: () => (currentTime += 1_000) });
+    const releaseStaleReadiness = deferred<void>();
+    let readinessCall = 0;
+    harness.provider.chatPlan = async function* (call) {
+      readinessCall += 1;
+      yield { type: "started", requestId: call.requestId };
+      if (readinessCall === 1) await releaseStaleReadiness.promise;
+      yield { type: "delta", requestId: call.requestId, sequence: 0, text: "Ready." };
+      yield {
+        type: "completed",
+        requestId: call.requestId,
+        metrics: { outputTokens: 10, durationMs: 1_000 },
+      };
+    };
+
+    const command: OnboardingCommand = {
+      type: "run-readiness",
+      model: RECOMMENDED_MODEL,
+      preferences: DEFAULT_PREFERENCES,
+    };
+    harness.port.send(command);
+    await vi.waitFor(() => expect(harness.provider.chatCalls).toHaveLength(1));
+    harness.port.send(command);
+    releaseStaleReadiness.resolve();
+    await vi.waitFor(() => expect(harness.provider.chatCalls).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(
+        harness.port.posted.filter((event) => event.type === "readiness-result"),
+      ).not.toHaveLength(0),
+    );
+    await settle();
+
+    expect(
+      harness.port.posted.filter((event) => event.type === "readiness-result"),
+    ).toHaveLength(1);
   });
 
   it.each([
@@ -393,6 +619,26 @@ describe("onboarding service", () => {
     ).toThrowError(PublicError);
     expect(() =>
       parseOnboardingEvent({ type: "onboarding-complete", providerOptions: {} }),
+    ).toThrowError(PublicError);
+    expect(() =>
+      parseOnboardingEvent({
+        type: "download-progress",
+        progress: { type: "started", model: "m".repeat(201) },
+      }),
+    ).toThrowError(PublicError);
+    expect(() =>
+      parseOnboardingEvent({
+        type: "download-progress",
+        progress: {
+          type: "failed",
+          model: RECOMMENDED_MODEL,
+          error: {
+            code: "MODEL_DOWNLOAD_FAILED",
+            message: "e".repeat(501),
+            recoverable: true,
+          },
+        },
+      }),
     ).toThrowError(PublicError);
   });
 

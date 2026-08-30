@@ -198,6 +198,57 @@ describe("ReaderAccessController", () => {
     );
   });
 
+  it("removes origins when the automatic reader is already absent", async () => {
+    const browser = new FakeReaderBrowserApi();
+    browser.grantOrigins(AUTOMATIC_READER_ORIGINS);
+    const access = new ReaderAccessController(browser);
+
+    await expect(access.disableAutomaticAccess()).resolves.toBeUndefined();
+
+    expect(browser.unregisterCalls).toBe(0);
+    expect(browser.removeCalls).toEqual([AUTOMATIC_READER_ORIGINS]);
+    await expect(browser.containsOrigins(AUTOMATIC_READER_ORIGINS)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("tolerates a missing-registration race and still removes origins", async () => {
+    const browser = new FakeReaderBrowserApi();
+    browser.grantOrigins(AUTOMATIC_READER_ORIGINS);
+    await browser.registerReader(AUTOMATIC_READER_ORIGINS);
+    browser.unregistrationRaceFailures.push(
+      new Error("No registered content script with id explain-this-reader"),
+    );
+    const access = new ReaderAccessController(browser);
+
+    await expect(access.disableAutomaticAccess()).resolves.toBeUndefined();
+
+    expect(browser.unregisterCalls).toBe(1);
+    expect(browser.removeCalls).toEqual([AUTOMATIC_READER_ORIGINS]);
+    await expect(browser.containsOrigins(AUTOMATIC_READER_ORIGINS)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("removes origins before surfacing an unregistration failure", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const failure = new Error("scripting unavailable");
+    browser.grantOrigins(AUTOMATIC_READER_ORIGINS);
+    await browser.registerReader(AUTOMATIC_READER_ORIGINS);
+    browser.unregisterReader = async () => {
+      browser.unregisterCalls += 1;
+      throw failure;
+    };
+    const access = new ReaderAccessController(browser);
+
+    await expect(access.disableAutomaticAccess()).rejects.toBe(failure);
+
+    expect(browser.removeCalls).toEqual([AUTOMATIC_READER_ORIGINS]);
+    await expect(browser.containsOrigins(AUTOMATIC_READER_ORIGINS)).resolves.toBe(
+      false,
+    );
+  });
+
   it("restores registration at startup only when optional origins still exist", async () => {
     const authorizedBrowser = new FakeReaderBrowserApi();
     authorizedBrowser.grantOrigins(AUTOMATIC_READER_ORIGINS);

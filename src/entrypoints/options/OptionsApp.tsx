@@ -573,27 +573,20 @@ function PermissionStep({
   const [requesting, setRequesting] = useState(false);
 
   async function settleAutomaticToolbar(granted: boolean): Promise<void> {
-    if (!granted) {
+    if (granted) {
       try {
-        await settingsRepository.update({ automaticToolbar: false });
+        await settingsRepository.update({ automaticToolbar: true });
+        await readerAccess.registerAutomaticAccess();
+        controller.resolvePermission(true);
+        return;
       } catch {
-        await readerAccess.disableAutomaticAccess().catch(() => undefined);
+        // Fall through to persist the rollback and revoke any granted access.
       }
-      controller.resolvePermission(false, true);
-      return;
     }
 
-    try {
-      await settingsRepository.update({ automaticToolbar: true });
-      await readerAccess.registerAutomaticAccess();
-      controller.resolvePermission(true);
-    } catch {
-      await Promise.allSettled([
-        settingsRepository.update({ automaticToolbar: false }),
-        readerAccess.disableAutomaticAccess(),
-      ]);
-      controller.resolvePermission(false, true);
-    }
+    await settingsRepository.update({ automaticToolbar: false }).catch(() => undefined);
+    await readerAccess.disableAutomaticAccess().catch(() => undefined);
+    controller.resolvePermission(false, true);
   }
 
   function handleEnableAutomaticToolbar(): void {

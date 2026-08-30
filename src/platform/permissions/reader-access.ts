@@ -102,8 +102,41 @@ export class ReaderAccessController implements ReaderAccessService {
   }
 
   async disableAutomaticAccess(): Promise<void> {
-    await this.browser.unregisterReader();
-    await this.browser.removeOrigins([...AUTOMATIC_READER_ORIGINS]);
+    let unregistrationFailure: { error: unknown } | undefined;
+
+    try {
+      if (await this.browser.getReaderRegistration()) {
+        try {
+          await this.browser.unregisterReader();
+        } catch (error: unknown) {
+          try {
+            if (await this.browser.getReaderRegistration()) {
+              unregistrationFailure = { error };
+            }
+          } catch {
+            unregistrationFailure = { error };
+          }
+        }
+      }
+    } catch (error: unknown) {
+      unregistrationFailure = { error };
+    }
+
+    let removalFailure: { error: unknown } | undefined;
+    try {
+      await this.browser.removeOrigins([...AUTOMATIC_READER_ORIGINS]);
+    } catch (error: unknown) {
+      removalFailure = { error };
+    }
+
+    if (unregistrationFailure && removalFailure) {
+      throw new AggregateError(
+        [unregistrationFailure.error, removalFailure.error],
+        "Failed to disable automatic reader access.",
+      );
+    }
+    if (removalFailure) throw removalFailure.error;
+    if (unregistrationFailure) throw unregistrationFailure.error;
   }
 
   async restoreAutomaticAccess(): Promise<boolean> {

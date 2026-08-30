@@ -483,8 +483,9 @@ describe("options onboarding", () => {
     expect(order).toEqual(["request", "persist:true", "register"]);
   });
 
-  it("persists denial as false without registering", async () => {
+  it("persists denial as false and removes pre-existing automatic access", async () => {
     const order: string[] = [];
+    let automaticAccess = true;
     const settings = storedSettings(0);
     const permissionAccess = {
       async enableAutomaticAccess() {
@@ -500,6 +501,7 @@ describe("options onboarding", () => {
       },
       async disableAutomaticAccess() {
         order.push("cleanup");
+        automaticAccess = false;
       },
     };
     const harness = createHarness({
@@ -525,7 +527,53 @@ describe("options onboarding", () => {
     );
     await screen.findByRole("heading", { name: /testing your local model/i });
 
-    expect(order).toEqual(["request", "persist:false"]);
+    expect(order).toEqual(["request", "persist:false", "cleanup"]);
+    expect(automaticAccess).toBe(false);
+  });
+
+  it("persists Not now as false and removes pre-existing automatic access", async () => {
+    const order: string[] = [];
+    let automaticAccess = true;
+    const settings = storedSettings(0);
+    const harness = createHarness({
+      readerAccess: {
+        requestAutomaticAccess() {
+          order.push("request");
+          return Promise.resolve(true);
+        },
+        async registerAutomaticAccess() {
+          order.push("register");
+        },
+        async disableAutomaticAccess() {
+          order.push("cleanup");
+          automaticAccess = false;
+        },
+      },
+      settingsRepository: {
+        async get() {
+          return structuredClone(settings);
+        },
+        async update(patch) {
+          order.push(`persist:${String(patch.automaticToolbar)}`);
+          settings.preferences = { ...settings.preferences, ...patch };
+          return structuredClone(settings);
+        },
+        async markOnboardingComplete() {
+          return structuredClone(settings);
+        },
+      },
+    });
+    await reachPermission(harness);
+
+    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+    await screen.findByRole("heading", { name: /testing your local model/i });
+
+    expect(order).toEqual(["persist:false", "cleanup"]);
+    expect(automaticAccess).toBe(false);
+    expect(harness.client.sent.at(-1)).toMatchObject({
+      type: "run-readiness",
+      preferences: { automaticToolbar: false },
+    });
   });
 
   it.each(["persistence", "registration"] as const)(

@@ -42,6 +42,7 @@ export class FakeReaderBrowserApi implements ReaderBrowserApi {
   requestedOriginsGranted = true;
   readonly executeFailures: Error[] = [];
   readonly registrationFailures: Error[] = [];
+  readonly unregistrationRaceFailures: Error[] = [];
   private readonly readerExecutionDeferrals: Deferred<void>[] = [];
   private readonly grantedOrigins = new Set<string>();
   private registration: RegisteredContentScript | undefined;
@@ -104,6 +105,11 @@ export class FakeReaderBrowserApi implements ReaderBrowserApi {
 
   async unregisterReader(): Promise<void> {
     this.unregisterCalls += 1;
+    if (!this.registration) {
+      throw new Error("No registered content script with id explain-this-reader");
+    }
+    const raceFailure = this.unregistrationRaceFailures.shift();
     this.registration = undefined;
+    if (raceFailure) throw raceFailure;
   }
 }

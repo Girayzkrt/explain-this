@@ -282,11 +282,18 @@ describe("background reader events", () => {
 
   it("aborts state and terminally forgets injection lifecycle on tab removal", async () => {
     const harness = createHarness();
+    const port = new FakePort("explain-this-reader", {
+      origin: "https://trusted.example",
+      tab: { id: 29, url: "https://trusted.example/article" },
+    });
+    harness.handlers.onPortConnected(port);
 
     await harness.handlers.onTabRemoved(29);
+    port.emitDisconnect();
 
     expect(harness.cancelledTabs).toEqual([29]);
     expect(harness.forgottenTabs).toEqual([29]);
+    expect(harness.invalidatedTabs).toEqual([]);
   });
 
   it("routes only the approved reader port from a valid tab", () => {
@@ -306,19 +313,31 @@ describe("background reader events", () => {
     harness.handlers.onPortConnected(approved);
     harness.handlers.onPortConnected(wrongName);
     harness.handlers.onPortConnected(missingTab);
+    wrongName.emitDisconnect();
+    missingTab.emitDisconnect();
 
     expect(harness.coordinatedPorts).toEqual([approved]);
+    expect(harness.invalidatedTabs).toEqual([]);
   });
 
-  it("invalidates injection state when the current reader page disconnects", () => {
+  it("lets only the latest same-tab reader port invalidate on disconnect", () => {
     const harness = createHarness();
-    const port = new FakePort("explain-this-reader", {
+    const olderPort = new FakePort("explain-this-reader", {
       origin: "https://trusted.example",
       tab: { id: 7, url: "https://trusted.example/article" },
     });
+    const newerPort = new FakePort("explain-this-reader", {
+      origin: "https://trusted.example",
+      tab: { id: 7, url: "https://trusted.example/next" },
+    });
 
-    harness.handlers.onPortConnected(port);
-    port.emitDisconnect();
+    harness.handlers.onPortConnected(olderPort);
+    harness.handlers.onPortConnected(newerPort);
+    olderPort.emitDisconnect();
+
+    expect(harness.invalidatedTabs).toEqual([]);
+
+    newerPort.emitDisconnect();
 
     expect(harness.invalidatedTabs).toEqual([7]);
   });

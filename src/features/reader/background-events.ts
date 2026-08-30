@@ -130,6 +130,8 @@ async function recreateMenus(dependencies: BackgroundDependencies): Promise<void
 export function createBackgroundHandlers(
   dependencies: BackgroundDependencies,
 ): BackgroundHandlers {
+  const portOwners = new Map<number, object>();
+
   return {
     async onInstalled(details) {
       await recreateMenus(dependencies);
@@ -171,6 +173,7 @@ export function createBackgroundHandlers(
 
     async onTabRemoved(tabId) {
       if (!Number.isInteger(tabId) || tabId < 0) return;
+      portOwners.delete(tabId);
       dependencies.readerAccess.forgetExplicitInjection(tabId);
       await dependencies.coordinator.cancelForTab(tabId);
     },
@@ -185,9 +188,14 @@ export function createBackgroundHandlers(
         return;
       }
 
+      const acceptedTabId = tabId as number;
+      const owner = {};
+      portOwners.set(acceptedTabId, owner);
       dependencies.coordinator.handle(port, port.sender as TrustedPortSender);
       port.onDisconnect.addListener(() => {
-        dependencies.readerAccess.invalidateExplicitInjection(tabId as number);
+        if (portOwners.get(acceptedTabId) !== owner) return;
+        portOwners.delete(acceptedTabId);
+        dependencies.readerAccess.invalidateExplicitInjection(acceptedTabId);
       });
     },
   };

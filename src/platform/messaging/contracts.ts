@@ -1,13 +1,18 @@
 import { z } from "zod";
 import { PublicError } from "../../core/requests/public-error";
-import { ReadingRequestSchema } from "../../core/requests/schemas";
-import type { FollowUpIntent, ReadingRequest } from "../../core/requests/types";
+import type { FollowUpIntent, ReadingAction } from "../../core/requests/types";
 import type { ReaderSession } from "../../features/reader/session";
-import { ReadingPreferencesSchema } from "../../features/settings/settings";
 import type { PublicErrorShape, StreamEvent } from "../../providers/provider";
 
+export interface ReaderStartRequest {
+  requestId: string;
+  action: ReadingAction;
+  selection: string;
+  nearbyContext?: string;
+}
+
 export type ReaderPortMessage =
-  | { type: "start-request"; request: ReadingRequest }
+  | { type: "start-request"; request: ReaderStartRequest }
   | { type: "cancel-request"; requestId: string }
   | { type: "retry-request"; requestId: string }
   | { type: "follow-up"; requestId: string; intent: FollowUpIntent }
@@ -19,16 +24,22 @@ export type BackgroundPortMessage =
   | { type: "command-failed"; error: PublicErrorShape };
 
 const RequestIdSchema = z.uuid();
-const StrictReadingRequestSchema = ReadingRequestSchema.safeExtend({
-  preferences: ReadingPreferencesSchema.strict(),
-});
+const TransportTextSchema = z.string().min(1).max(32_000);
+const ReaderStartRequestSchema = z
+  .object({
+    requestId: RequestIdSchema,
+    action: z.enum(["explain", "simplify", "translate", "example"]),
+    selection: TransportTextSchema,
+    nearbyContext: TransportTextSchema.optional(),
+  })
+  .strict();
 
 /** Commands carrying reading data that are accepted from an injected reader surface. */
 const ReaderCommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("start-request"),
-      request: StrictReadingRequestSchema,
+      request: ReaderStartRequestSchema,
     })
     .strict(),
   z.object({ type: z.literal("cancel-request"), requestId: RequestIdSchema }).strict(),

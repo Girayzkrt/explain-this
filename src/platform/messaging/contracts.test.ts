@@ -10,7 +10,6 @@ const startRequest = () => ({
     requestId: REQUEST_ID,
     action: "explain",
     selection: "A bounded selection.",
-    preferences: DEFAULT_PREFERENCES,
   },
 });
 
@@ -26,6 +25,22 @@ describe("reader port message contract", () => {
     {
       ...startRequest(),
       request: { ...startRequest().request, temperature: 2, numCtx: 1_000_000 },
+    },
+    {
+      ...startRequest(),
+      request: { ...startRequest().request, followUpIntent: "why" },
+    },
+    {
+      ...startRequest(),
+      request: { ...startRequest().request, previousAnswer: "stolen context" },
+    },
+    {
+      ...startRequest(),
+      request: { ...startRequest().request, selectedModel: "attacker-model" },
+    },
+    {
+      ...startRequest(),
+      request: { ...startRequest().request, preferredLanguage: "Attacker" },
     },
     {
       ...startRequest(),

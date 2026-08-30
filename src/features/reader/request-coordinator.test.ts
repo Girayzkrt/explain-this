@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ReadingRequest } from "../../core/requests/types";
-import { DEFAULT_PREFERENCES } from "../settings/settings";
+import { DEFAULT_PREFERENCES, type ReadingPreferences } from "../settings/settings";
 import type { ChatRequest, LlmProvider, StreamEvent } from "../../providers/provider";
 import type {
   BackgroundPortMessage,
@@ -88,27 +87,34 @@ class FakeProvider implements LlmProvider {
   }
 }
 
-const settingsRepository: SettingsRepository = {
-  async get() {
-    return { onboardingVersion: 1, preferences: DEFAULT_PREFERENCES };
-  },
-  async update() {
-    return { onboardingVersion: 1, preferences: DEFAULT_PREFERENCES };
-  },
-  async markOnboardingComplete() {
-    return { onboardingVersion: 1, preferences: DEFAULT_PREFERENCES };
-  },
-};
+function createSettingsRepository(
+  preferences: ReadingPreferences = DEFAULT_PREFERENCES,
+): SettingsRepository {
+  return {
+    async get() {
+      return { onboardingVersion: 1, preferences };
+    },
+    async update() {
+      return { onboardingVersion: 1, preferences };
+    },
+    async markOnboardingComplete() {
+      return { onboardingVersion: 1, preferences };
+    },
+  };
+}
+
+const settingsRepository = createSettingsRepository();
 
 function request(
   requestId = REQUEST_1,
   selection = "Private source text",
-): ReadingRequest {
+  nearbyContext?: string,
+) {
   return {
     requestId,
-    action: "explain",
+    action: "explain" as const,
     selection,
-    preferences: DEFAULT_PREFERENCES,
+    ...(nearbyContext === undefined ? {} : { nearbyContext }),
   };
 }
 
@@ -116,14 +122,14 @@ function sender(tabId = TAB_ID, url = `${ORIGIN}/article`): TrustedPortSender {
   return { tab: { id: tabId, url }, url };
 }
 
-function createHarness() {
+function createHarness(preferences: ReadingPreferences = DEFAULT_PREFERENCES) {
   const storage = new MemoryStorageArea();
   const sessionRepository = createSessionRepository(storage);
   const provider = new FakeProvider();
   const coordinator = new RequestCoordinator({
     provider,
     sessionRepository,
-    settingsRepository,
+    settingsRepository: createSettingsRepository(preferences),
   });
   return { coordinator, provider, sessionRepository, storage };
 }
@@ -165,7 +171,14 @@ describe("RequestCoordinator", () => {
   });
 
   it("validates, budgets, prompts, streams, and stores safe state for the trusted tab", async () => {
-    const { coordinator, provider, sessionRepository, storage } = createHarness();
+    const trustedPreferences: ReadingPreferences = {
+      ...DEFAULT_PREFERENCES,
+      preferredLanguage: "Nederlands",
+      explanationLevel: "technical",
+      selectedModel: "trusted-model:7b",
+    };
+    const { coordinator, provider, sessionRepository, storage } =
+      createHarness(trustedPreferences);
     const port = new TestPort();
     const privateSelection = "Private source text ".repeat(20);
     provider.plans.push(
@@ -190,6 +203,13 @@ describe("RequestCoordinator", () => {
     );
     expect(provider.calls[0]?.request.messages[1]?.content).toContain(
       `<selected_text>${privateSelection}</selected_text>`,
+    );
+    expect(provider.calls[0]?.request.model).toBe("trusted-model:7b");
+    expect(provider.calls[0]?.request.messages[1]?.content).toContain(
+      "Target language: Nederlands.",
+    );
+    expect(provider.calls[0]?.request.messages[1]?.content).toContain(
+      "Explanation level: Technical.",
     );
     expect(
       port.posted
@@ -236,8 +256,30 @@ describe("RequestCoordinator", () => {
     expect(provider.calls).toHaveLength(0);
   });
 
-  it("globally aborts the old generation before a second port starts", async () => {
-    const { coordinator, provider } = createHarness();
+  it("rejects nearby context unless trusted settings opt in", async () => {
+    const { coordinator, provider } = createHarness({
+      ...DEFAULT_PREFERENCES,
+      includeNearbyContext: false,
+    });
+    const port = new TestPort();
+    coordinator.handle(port, sender());
+
+    port.send({
+      type: "start-request",
+      request: request(REQUEST_1, "Private source", "Untrusted nearby context"),
+    });
+
+    await vi.waitFor(() =>
+      expect(port.posted).toContainEqual({
+        type: "command-failed",
+        error: expect.objectContaining({ code: "INVALID_REQUEST" }),
+      }),
+    );
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("globally removes the old tab state before a cross-tab generation starts", async () => {
+    const { coordinator, provider, sessionRepository } = createHarness();
     const firstPort = new TestPort();
     const secondPort = new TestPort();
     const firstReleased = deferred<void>();
@@ -264,11 +306,125 @@ describe("RequestCoordinator", () => {
     await waitForCalls(provider, 1);
     secondPort.send({ type: "start-request", request: request(REQUEST_2) });
     await waitForCalls(provider, 2);
+    await vi.waitFor(() =>
+      expect(secondPort.posted).toContainEqual({
+        type: "stream-event",
+        event: { type: "completed", requestId: REQUEST_2 },
+      }),
+    );
 
     expect(provider.calls[0]?.signal.aborted).toBe(true);
     expect(provider.calls[1]?.signal.aborted).toBe(false);
+    await expect(sessionRepository.getReaderSession(TAB_ID)).resolves.toBeUndefined();
+    await expect(sessionRepository.getPrivateSource(TAB_ID)).resolves.toBeUndefined();
+    await expect(sessionRepository.getReaderSession(TAB_ID + 1)).resolves.toMatchObject(
+      { requestId: REQUEST_2, status: "completed" },
+    );
+    await expect(sessionRepository.getPrivateSource(TAB_ID + 1)).resolves.toMatchObject(
+      { requestId: REQUEST_2 },
+    );
     firstReleased.resolve();
   });
+
+  it("does not let a stale same-tab port disconnect delete newer owned state", async () => {
+    const { coordinator, provider, sessionRepository } = createHarness();
+    const oldPort = new TestPort();
+    const newPort = new TestPort();
+    provider.plans.push(
+      finitePlan([
+        { type: "started", requestId: REQUEST_1 },
+        { type: "completed", requestId: REQUEST_1 },
+      ]),
+      finitePlan([
+        { type: "started", requestId: REQUEST_2 },
+        { type: "completed", requestId: REQUEST_2 },
+      ]),
+    );
+    coordinator.handle(oldPort, sender(TAB_ID, "https://old.test/article"));
+    coordinator.handle(newPort, sender(TAB_ID, "https://new.test/article"));
+    oldPort.send({ type: "start-request", request: request() });
+    await waitForCalls(provider, 1);
+    newPort.send({ type: "start-request", request: request(REQUEST_2) });
+    await waitForCalls(provider, 2);
+    await vi.waitFor(async () =>
+      expect(await sessionRepository.getReaderSession(TAB_ID)).toMatchObject({
+        requestId: REQUEST_2,
+        origin: "https://new.test",
+      }),
+    );
+
+    oldPort.disconnect();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(sessionRepository.getReaderSession(TAB_ID)).resolves.toMatchObject({
+      requestId: REQUEST_2,
+      origin: "https://new.test",
+    });
+    await expect(sessionRepository.getPrivateSource(TAB_ID)).resolves.toMatchObject({
+      requestId: REQUEST_2,
+      origin: "https://new.test",
+    });
+  });
+
+  it.each(["retry-request", "follow-up"] as const)(
+    "does not let a stale-origin %s command delete newer same-tab state",
+    async (type) => {
+      const { coordinator, provider, sessionRepository } = createHarness();
+      const oldPort = new TestPort();
+      const newPort = new TestPort();
+      provider.plans.push(
+        finitePlan([
+          { type: "started", requestId: REQUEST_1 },
+          { type: "completed", requestId: REQUEST_1 },
+        ]),
+        finitePlan([
+          { type: "started", requestId: REQUEST_2 },
+          {
+            type: "delta",
+            requestId: REQUEST_2,
+            sequence: 0,
+            text: "new answer",
+          },
+          { type: "completed", requestId: REQUEST_2 },
+        ]),
+      );
+      coordinator.handle(oldPort, sender(TAB_ID, "https://old.test/article"));
+      coordinator.handle(newPort, sender(TAB_ID, "https://new.test/article"));
+      oldPort.send({ type: "start-request", request: request() });
+      await waitForCalls(provider, 1);
+      newPort.send({ type: "start-request", request: request(REQUEST_2) });
+      await waitForCalls(provider, 2);
+      await vi.waitFor(async () =>
+        expect(await sessionRepository.getReaderSession(TAB_ID)).toMatchObject({
+          requestId: REQUEST_2,
+          status: "completed",
+        }),
+      );
+
+      oldPort.send(
+        type === "retry-request"
+          ? { type, requestId: REQUEST_1 }
+          : { type, requestId: REQUEST_1, intent: "why" },
+      );
+
+      await vi.waitFor(() =>
+        expect(oldPort.posted).toContainEqual({
+          type: "command-failed",
+          error: expect.objectContaining({ code: "INVALID_REQUEST" }),
+        }),
+      );
+      expect(provider.calls).toHaveLength(2);
+      await expect(sessionRepository.getReaderSession(TAB_ID)).resolves.toMatchObject({
+        requestId: REQUEST_2,
+        origin: "https://new.test",
+        answer: "new answer",
+      });
+      await expect(sessionRepository.getPrivateSource(TAB_ID)).resolves.toMatchObject({
+        requestId: REQUEST_2,
+        origin: "https://new.test",
+      });
+    },
+  );
 
   it("aborts on disconnect and removes page-bound private state", async () => {
     const { coordinator, provider, sessionRepository } = createHarness();

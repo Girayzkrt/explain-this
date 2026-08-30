@@ -8,6 +8,7 @@ import {
   parseReaderPortMessage,
   type BackgroundPortMessage,
   type ReaderCommandMessage,
+  type ReaderStartRequest,
 } from "../../platform/messaging/contracts";
 import type { PortLike, TrustedPortSender } from "../../platform/messaging/port";
 import type { SessionRepository } from "../../platform/storage/session-repository";
@@ -39,12 +40,19 @@ interface TrustedReaderIdentity {
 interface PortContext extends TrustedReaderIdentity {
   port: PortLike;
   disconnected: boolean;
+  epoch: number;
 }
 
 interface ActiveGeneration extends TrustedReaderIdentity {
   requestId: string;
   port: PortLike;
   controller: AbortController;
+}
+
+interface TabOwnership extends TrustedReaderIdentity {
+  requestId: string;
+  port: PortLike;
+  epoch: number;
 }
 
 const INVALID_SENDER = new PublicError(
@@ -99,6 +107,8 @@ function withOptionalSource(
 
 export class RequestCoordinator {
   private active: ActiveGeneration | undefined;
+  private readonly tabOwnership = new Map<number, TabOwnership>();
+  private nextEpoch = 0;
   private commandQueue: Promise<void> = Promise.resolve();
   private mutationQueue: Promise<void> = Promise.resolve();
 
@@ -113,7 +123,12 @@ export class RequestCoordinator {
       return;
     }
 
-    const context: PortContext = { ...identity, port, disconnected: false };
+    const context: PortContext = {
+      ...identity,
+      port,
+      disconnected: false,
+      epoch: ++this.nextEpoch,
+    };
     const onMessage = (input: unknown): void => {
       let message: ReaderCommandMessage;
       try {
@@ -138,12 +153,16 @@ export class RequestCoordinator {
       context.disconnected = true;
       port.onMessage.removeListener(onMessage);
       port.onDisconnect.removeListener(onDisconnect);
-      if (this.active?.port === port) {
-        const active = this.active;
-        this.active = undefined;
-        active.controller.abort();
+      const owner = this.tabOwnership.get(context.tabId);
+      if (owner?.epoch === context.epoch) {
+        this.tabOwnership.delete(context.tabId);
+        if (this.active?.port === port) {
+          const active = this.active;
+          this.active = undefined;
+          active.controller.abort();
+        }
+        void this.removeStoredIdentity(owner);
       }
-      void this.removeTabState(context.tabId);
     };
 
     port.onMessage.addListener(onMessage);
@@ -157,6 +176,7 @@ export class RequestCoordinator {
       this.active = undefined;
       active.controller.abort();
     }
+    this.tabOwnership.delete(tabId);
     void this.removeTabState(tabId);
   }
 
@@ -168,7 +188,7 @@ export class RequestCoordinator {
 
     switch (message.type) {
       case "start-request":
-        await this.begin(context, message.request);
+        await this.start(context, message.request);
         return;
       case "cancel-request":
         if (
@@ -185,6 +205,20 @@ export class RequestCoordinator {
         await this.followUp(context, message.requestId, message.intent);
         return;
     }
+  }
+
+  private async start(context: PortContext, input: ReaderStartRequest): Promise<void> {
+    const settings = await this.dependencies.settingsRepository.get();
+    const request: ReadingRequest = {
+      requestId: input.requestId,
+      action: input.action,
+      selection: input.selection,
+      preferences: settings.preferences,
+      ...(input.nearbyContext === undefined
+        ? {}
+        : { nearbyContext: input.nearbyContext }),
+    };
+    await this.begin(context, request);
   }
 
   private async retry(context: PortContext, requestId: string): Promise<void> {
@@ -236,6 +270,14 @@ export class RequestCoordinator {
     context: PortContext,
     requestId: string,
   ): Promise<{ session: ReaderSession; source: PrivateSourceEnvelope }> {
+    const owner = this.tabOwnership.get(context.tabId);
+    if (owner && owner.epoch > context.epoch) {
+      throw new PublicError(
+        "INVALID_REQUEST",
+        "The stored reading request is unavailable.",
+        false,
+      );
+    }
     const [session, source] = await Promise.all([
       this.dependencies.sessionRepository.getReaderSession(context.tabId),
       this.dependencies.sessionRepository.getPrivateSource(context.tabId),
@@ -248,12 +290,6 @@ export class RequestCoordinator {
       session.origin !== context.origin ||
       source.origin !== context.origin
     ) {
-      if (
-        (session && session.origin !== context.origin) ||
-        (source && source.origin !== context.origin)
-      ) {
-        await this.removeTabState(context.tabId);
-      }
       throw new PublicError(
         "INVALID_REQUEST",
         "The stored reading request is unavailable.",
@@ -275,7 +311,39 @@ export class RequestCoordinator {
         : { previousAnswer: request.previousAnswer }),
     });
 
-    this.active?.controller.abort();
+    const currentOwner = this.tabOwnership.get(context.tabId);
+    if (currentOwner && currentOwner.epoch > context.epoch) {
+      throw new PublicError(
+        "INVALID_REQUEST",
+        "The reader connection is stale.",
+        false,
+      );
+    }
+
+    const replacedActive = this.active;
+    if (replacedActive) {
+      this.active = undefined;
+      replacedActive.controller.abort();
+      await this.removeStoredIdentity(replacedActive);
+      const replacedOwner = this.tabOwnership.get(replacedActive.tabId);
+      if (replacedOwner?.requestId === replacedActive.requestId) {
+        this.tabOwnership.delete(replacedActive.tabId);
+      }
+    }
+
+    const replacedOwner = this.tabOwnership.get(context.tabId);
+    if (
+      replacedOwner &&
+      (replacedOwner.epoch !== context.epoch ||
+        replacedOwner.requestId !== request.requestId)
+    ) {
+      await this.removeStoredIdentity(replacedOwner);
+      if (this.tabOwnership.get(context.tabId) === replacedOwner) {
+        this.tabOwnership.delete(context.tabId);
+      }
+    }
+
+    if (context.disconnected) return;
     const generation: ActiveGeneration = {
       requestId: request.requestId,
       tabId: context.tabId,
@@ -284,6 +352,13 @@ export class RequestCoordinator {
       controller: new AbortController(),
     };
     this.active = generation;
+    this.tabOwnership.set(context.tabId, {
+      requestId: request.requestId,
+      tabId: context.tabId,
+      origin: context.origin,
+      port: context.port,
+      epoch: context.epoch,
+    });
 
     const session: ReaderSession = {
       tabId: context.tabId,
@@ -399,6 +474,34 @@ export class RequestCoordinator {
   private async removeTabState(tabId: number): Promise<void> {
     await this.mutate(async () => {
       await this.dependencies.sessionRepository.removeTabState(tabId);
+    });
+  }
+
+  private async removeStoredIdentity(
+    identity: Pick<TrustedReaderIdentity, "tabId" | "origin"> & {
+      requestId: string;
+    },
+  ): Promise<void> {
+    await this.mutate(async () => {
+      const [session, source] = await Promise.all([
+        this.dependencies.sessionRepository.getReaderSession(identity.tabId),
+        this.dependencies.sessionRepository.getPrivateSource(identity.tabId),
+      ]);
+      const records = [session, source].filter(
+        (record): record is ReaderSession | PrivateSourceEnvelope =>
+          record !== undefined,
+      );
+      if (
+        records.length === 0 ||
+        records.some(
+          (record) =>
+            record.requestId !== identity.requestId ||
+            record.origin !== identity.origin,
+        )
+      ) {
+        return;
+      }
+      await this.dependencies.sessionRepository.removeTabState(identity.tabId);
     });
   }
 

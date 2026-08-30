@@ -129,6 +129,7 @@ function createProductionBackgroundDependencies(
       setPanelBehavior: (behavior) => browser.sidePanel.setPanelBehavior(behavior),
     },
     readerAccess,
+    settingsRepository,
     coordinator,
     onboardingService,
   };

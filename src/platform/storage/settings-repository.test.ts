@@ -12,7 +12,7 @@ describe("settings repository", () => {
     const repository = createSettingsRepository(storage, () => "nl-NL");
 
     const expected = {
-      onboardingVersion: 1 as const,
+      onboardingVersion: 0 as const,
       preferences: {
         ...createDefaultPreferences(),
         preferredLanguage: "nl-NL",
@@ -60,7 +60,7 @@ describe("settings repository", () => {
     const repository = createSettingsRepository(storage, () => "de-DE");
 
     const repaired = {
-      onboardingVersion: 1,
+      onboardingVersion: 0,
       preferences: {
         ...createDefaultPreferences(),
         preferredLanguage: "de-DE",
@@ -71,7 +71,7 @@ describe("settings repository", () => {
     await expect(storage.snapshot()).resolves.toEqual({ settings: repaired });
   });
 
-  it("migrates onboarding version zero without changing explicit preferences", async () => {
+  it("retains onboarding version zero and explicit preferences during ordinary reads", async () => {
     const storage = new MemoryStorageArea();
     const preferences = {
       ...createDefaultPreferences(),
@@ -82,11 +82,29 @@ describe("settings repository", () => {
     const repository = createSettingsRepository(storage, () => "en-US");
 
     await expect(repository.get()).resolves.toEqual({
-      onboardingVersion: 1,
+      onboardingVersion: 0,
       preferences,
     });
     await expect(storage.snapshot()).resolves.toEqual({
-      settings: { onboardingVersion: 1, preferences },
+      settings: { onboardingVersion: 0, preferences },
+    });
+  });
+
+  it("retains an incomplete version across preference updates until completion", async () => {
+    const storage = new MemoryStorageArea();
+    const repository = createSettingsRepository(storage, () => "en-US");
+
+    const updated = await repository.update({ explanationLevel: "technical" });
+
+    expect(updated.onboardingVersion).toBe(0);
+    await expect(storage.snapshot()).resolves.toMatchObject({
+      settings: { onboardingVersion: 0 },
+    });
+
+    const completed = await repository.markOnboardingComplete();
+    expect(completed.onboardingVersion).toBe(1);
+    await expect(storage.snapshot()).resolves.toMatchObject({
+      settings: { onboardingVersion: 1 },
     });
   });
 });

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
 import type { OriginGuidance } from "../../features/onboarding/origin-guidance";
@@ -8,7 +8,6 @@ import {
   type OnboardingController,
   type OnboardingState,
 } from "../../features/onboarding/use-onboarding";
-import type { ReadingPreferences } from "../../features/settings/settings";
 import type { OnboardingClient } from "../../platform/messaging/onboarding-client";
 import type { ReaderAccessService } from "../../platform/permissions/reader-access";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
@@ -34,7 +33,10 @@ const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
 export interface OptionsAppDependencies {
   createClient(): OnboardingClientConnection | OnboardingClient;
   settingsRepository: SettingsRepository;
-  readerAccess: Pick<ReaderAccessService, "enableAutomaticAccess">;
+  readerAccess: Pick<
+    ReaderAccessService,
+    "requestAutomaticAccess" | "registerAutomaticAccess" | "disableAutomaticAccess"
+  >;
   getUiLanguage(): string;
   getOriginGuidance(): OriginGuidance;
 }
@@ -45,6 +47,8 @@ export interface OptionsAppProps {
 
 function currentStep(state: OnboardingState): number {
   switch (state.step) {
+    case "loading":
+      return 1;
     case "welcome":
       return 1;
     case "checking-runtime":
@@ -66,9 +70,10 @@ function currentStep(state: OnboardingState): number {
     case "readiness":
       return 11;
     case "complete":
+    case "settings":
       return 12;
     case "failed":
-      return 2;
+      return state.interruptedStep;
   }
 }
 
@@ -143,6 +148,15 @@ function ActiveStep({
   const { state } = controller;
 
   switch (state.step) {
+    case "loading":
+      return (
+        <StepFrame eyebrow="Local setup" heading="Loading Explain This">
+          <div className="working-status" role="status">
+            <span className="status-pulse" aria-hidden="true" />
+            Loading settings…
+          </div>
+        </StepFrame>
+      );
     case "welcome":
       return (
         <StepFrame eyebrow="Step 1 of 12" heading="Understand text locally">
@@ -197,6 +211,15 @@ function ActiveStep({
             >
               Check again
             </button>
+            {state.showOriginGuidance ? (
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={controller.showOriginGuidance}
+              >
+                Show exact-origin guidance
+              </button>
+            ) : null}
           </div>
         </StepFrame>
       );
@@ -221,19 +244,15 @@ function ActiveStep({
         <PermissionStep
           controller={controller}
           readerAccess={dependencies.readerAccess}
+          settingsRepository={dependencies.settingsRepository}
         />
       );
     case "readiness":
       return <ReadinessStep state={state} />;
     case "complete":
-      return (
-        <ReadyStep
-          controller={controller}
-          preferences={controller.preferences}
-          resultState={state}
-          settingsRepository={dependencies.settingsRepository}
-        />
-      );
+      return <ReadyStep controller={controller} resultState={state} />;
+    case "settings":
+      return <SettingsStep controller={controller} />;
     case "failed":
       return (
         <StepFrame eyebrow="Setup paused" heading="This step didn’t finish">
@@ -252,10 +271,18 @@ function StepFrame({
   heading: string;
   children: ReactNode;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [heading]);
+
   return (
     <div className="step-frame">
       <p className="eyebrow">{eyebrow}</p>
-      <h2>{heading}</h2>
+      <h2 ref={headingRef} tabIndex={-1}>
+        {heading}
+      </h2>
       <div className="step-content">{children}</div>
     </div>
   );
@@ -537,18 +564,44 @@ function ContextStep({ controller }: { controller: OnboardingController }) {
 function PermissionStep({
   controller,
   readerAccess,
+  settingsRepository,
 }: {
   controller: OnboardingController;
-  readerAccess: Pick<ReaderAccessService, "enableAutomaticAccess">;
+  readerAccess: OptionsAppDependencies["readerAccess"];
+  settingsRepository: SettingsRepository;
 }) {
   const [requesting, setRequesting] = useState(false);
 
+  async function settleAutomaticToolbar(granted: boolean): Promise<void> {
+    if (!granted) {
+      try {
+        await settingsRepository.update({ automaticToolbar: false });
+      } catch {
+        await readerAccess.disableAutomaticAccess().catch(() => undefined);
+      }
+      controller.resolvePermission(false, true);
+      return;
+    }
+
+    try {
+      await settingsRepository.update({ automaticToolbar: true });
+      await readerAccess.registerAutomaticAccess();
+      controller.resolvePermission(true);
+    } catch {
+      await Promise.allSettled([
+        settingsRepository.update({ automaticToolbar: false }),
+        readerAccess.disableAutomaticAccess(),
+      ]);
+      controller.resolvePermission(false, true);
+    }
+  }
+
   function handleEnableAutomaticToolbar(): void {
-    const permissionRequest = readerAccess.enableAutomaticAccess();
+    const permissionRequest = readerAccess.requestAutomaticAccess();
     setRequesting(true);
     void permissionRequest.then(
-      ({ granted }) => controller.resolvePermission(granted, !granted),
-      () => controller.resolvePermission(false, true),
+      (granted) => settleAutomaticToolbar(granted),
+      () => settleAutomaticToolbar(false),
     );
   }
 
@@ -578,7 +631,10 @@ function PermissionStep({
           className="button button-secondary"
           type="button"
           disabled={requesting}
-          onClick={() => controller.resolvePermission(false)}
+          onClick={() => {
+            setRequesting(true);
+            void settleAutomaticToolbar(false);
+          }}
         >
           Not now
         </button>
@@ -613,33 +669,12 @@ function ReadinessStep({
 
 function ReadyStep({
   controller,
-  preferences,
   resultState,
-  settingsRepository,
 }: {
   controller: OnboardingController;
-  preferences: ReadingPreferences;
   resultState: Extract<OnboardingState, { step: "complete" }>;
-  settingsRepository: SettingsRepository;
 }) {
-  const [blockedSites, setBlockedSites] = useState(preferences.blockedSites);
-  const [blockedHost, setBlockedHost] = useState("");
   const warning = resultState.result.status === "warning";
-
-  async function addBlockedHost(): Promise<void> {
-    const normalized = normalizeBlockedHost(blockedHost);
-    if (!normalized || blockedSites.includes(normalized)) return;
-    const next = [...blockedSites, normalized];
-    setBlockedSites(next);
-    setBlockedHost("");
-    await settingsRepository.update({ blockedSites: next });
-  }
-
-  async function removeBlockedHost(host: string): Promise<void> {
-    const next = blockedSites.filter((candidate) => candidate !== host);
-    setBlockedSites(next);
-    await settingsRepository.update({ blockedSites: next });
-  }
 
   return (
     <StepFrame eyebrow="Step 12 of 12" heading="Ready">
@@ -667,6 +702,42 @@ function ReadyStep({
         </ol>
       </div>
 
+      <button
+        className="button button-primary"
+        type="button"
+        onClick={controller.finish}
+      >
+        Finish setup
+      </button>
+    </StepFrame>
+  );
+}
+
+function SettingsStep({ controller }: { controller: OnboardingController }) {
+  const [blockedSites, setBlockedSites] = useState(controller.preferences.blockedSites);
+  const [blockedHost, setBlockedHost] = useState("");
+
+  async function addBlockedHost(): Promise<void> {
+    const normalized = normalizeBlockedHost(blockedHost);
+    if (!normalized || blockedSites.includes(normalized)) return;
+    const next = [...blockedSites, normalized];
+    setBlockedSites(next);
+    setBlockedHost("");
+    await controller.updateSettings({ blockedSites: next });
+  }
+
+  async function removeBlockedHost(host: string): Promise<void> {
+    const next = blockedSites.filter((candidate) => candidate !== host);
+    setBlockedSites(next);
+    await controller.updateSettings({ blockedSites: next });
+  }
+
+  return (
+    <StepFrame eyebrow="Settings" heading="Explanation settings">
+      <p>
+        Setup is complete. These preferences stay on this computer and can be changed
+        without repeating the readiness test.
+      </p>
       <div className="blocked-editor">
         <h3>Sites where automatic actions stay off</h3>
         <p>Stored locally as hostnames only. Explicit invocation remains available.</p>
@@ -705,15 +776,6 @@ function ReadyStep({
           <p className="empty-note">No blocked hosts.</p>
         )}
       </div>
-
-      <button
-        className="button button-primary"
-        type="button"
-        disabled={resultState.saved}
-        onClick={controller.finish}
-      >
-        {resultState.saved ? "Setup saved" : "Finish setup"}
-      </button>
     </StepFrame>
   );
 }

@@ -145,6 +145,16 @@ describe("ReaderAccessController", () => {
     expect(browser.registeredMatches).toEqual([AUTOMATIC_READER_ORIGINS]);
   });
 
+  it("starts the browser permission request before the enable call returns", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const access = new ReaderAccessController(browser);
+
+    const enabling = access.enableAutomaticAccess();
+
+    expect(browser.requestCalls).toEqual([AUTOMATIC_READER_ORIGINS]);
+    await enabling;
+  });
+
   it("reports a denied permission request without registering or throwing", async () => {
     const browser = new FakeReaderBrowserApi();
     browser.requestedOriginsGranted = false;
@@ -221,7 +231,7 @@ describe("ReaderAccessController", () => {
         access.enableAutomaticAccess(),
         access.restoreAutomaticAccess(),
       ]),
-    ).resolves.toEqual([{ granted: true }, { granted: true }, undefined]);
+    ).resolves.toEqual([{ granted: true }, { granted: true }, true]);
 
     expect(browser.requestCalls).toEqual([AUTOMATIC_READER_ORIGINS]);
     expect(browser.registeredMatches).toEqual([AUTOMATIC_READER_ORIGINS]);

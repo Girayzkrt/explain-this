@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_PREFERENCES } from "../settings/settings";
 import type { PortLike, TrustedPortSender } from "../../platform/messaging/port";
 import {
   createBackgroundHandlers,
@@ -55,6 +56,11 @@ function createHarness() {
   const cancelledTabs: number[] = [];
   const panelBehaviors: Array<{ openPanelOnActionClick: true }> = [];
   let restoreAutomaticAccessCalls = 0;
+  let disableAutomaticAccessCalls = 0;
+  let automaticToolbar = true;
+  let restorationGranted = true;
+  let restorationFailure: Error | undefined;
+  const settingsUpdates: Array<{ automaticToolbar?: boolean }> = [];
   let activeTabs: Array<{
     id?: number | undefined;
     url?: string | undefined;
@@ -100,6 +106,27 @@ function createHarness() {
       },
       async restoreAutomaticAccess() {
         restoreAutomaticAccessCalls += 1;
+        if (restorationFailure) throw restorationFailure;
+        return restorationGranted;
+      },
+      async disableAutomaticAccess() {
+        disableAutomaticAccessCalls += 1;
+      },
+    },
+    settingsRepository: {
+      async get() {
+        return {
+          onboardingVersion: 1 as const,
+          preferences: { ...DEFAULT_PREFERENCES, automaticToolbar },
+        };
+      },
+      async update(patch: { automaticToolbar?: boolean }) {
+        settingsUpdates.push(structuredClone(patch));
+        automaticToolbar = patch.automaticToolbar ?? automaticToolbar;
+        return {
+          onboardingVersion: 1 as const,
+          preferences: { ...DEFAULT_PREFERENCES, automaticToolbar },
+        };
       },
     },
     coordinator: {
@@ -124,11 +151,24 @@ function createHarness() {
     coordinatedPorts,
     cancelledTabs,
     panelBehaviors,
+    settingsUpdates,
     get removeAllCalls() {
       return removeAllCalls;
     },
     get restoreAutomaticAccessCalls() {
       return restoreAutomaticAccessCalls;
+    },
+    get disableAutomaticAccessCalls() {
+      return disableAutomaticAccessCalls;
+    },
+    setAutomaticToolbar(value: boolean) {
+      automaticToolbar = value;
+    },
+    setRestorationGranted(value: boolean) {
+      restorationGranted = value;
+    },
+    failRestoration(error: Error) {
+      restorationFailure = error;
     },
     setActiveTabs(tabs: typeof activeTabs) {
       activeTabs = tabs;
@@ -278,6 +318,36 @@ describe("background reader events", () => {
 
     expect(harness.panelBehaviors).toEqual([{ openPanelOnActionClick: true }]);
     expect(harness.restoreAutomaticAccessCalls).toBe(1);
+  });
+
+  it("cleans stale automatic access at startup when stored consent is false", async () => {
+    const harness = createHarness();
+    harness.setAutomaticToolbar(false);
+
+    await initializeBackgroundServices(harness.dependencies);
+
+    expect(harness.restoreAutomaticAccessCalls).toBe(0);
+    expect(harness.disableAutomaticAccessCalls).toBe(1);
+  });
+
+  it("downgrades stored consent and cleans access when restoration lacks permission", async () => {
+    const harness = createHarness();
+    harness.setRestorationGranted(false);
+
+    await initializeBackgroundServices(harness.dependencies);
+
+    expect(harness.settingsUpdates).toEqual([{ automaticToolbar: false }]);
+    expect(harness.disableAutomaticAccessCalls).toBe(1);
+  });
+
+  it("downgrades stored consent and cleans access when restoration registration fails", async () => {
+    const harness = createHarness();
+    harness.failRestoration(new Error("registration failed"));
+
+    await initializeBackgroundServices(harness.dependencies);
+
+    expect(harness.settingsUpdates).toEqual([{ automaticToolbar: false }]);
+    expect(harness.disableAutomaticAccessCalls).toBe(1);
   });
 
   it("aborts state and terminally forgets injection lifecycle on tab removal", async () => {

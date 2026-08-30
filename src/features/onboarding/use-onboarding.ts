@@ -20,9 +20,14 @@ export interface OnboardingClientConnection {
 }
 
 export type OnboardingState =
+  | { step: "loading" }
   | { step: "welcome" }
   | { step: "checking-runtime" }
-  | { step: "runtime-missing"; error: PublicErrorShape }
+  | {
+      step: "runtime-missing";
+      error: PublicErrorShape;
+      showOriginGuidance: boolean;
+    }
   | { step: "origin-guidance"; error: PublicErrorShape }
   | { step: "choosing-model"; models: ModelInfo[] }
   | { step: "downloading"; progress: ModelDownloadEvent }
@@ -34,12 +39,19 @@ export type OnboardingState =
       preferences: ReadingPreferences;
       permissionDenied: boolean;
     }
-  | { step: "complete"; result: ReadinessResult; saved: boolean }
-  | { step: "failed"; error: PublicErrorShape };
+  | { step: "complete"; result: ReadinessResult }
+  | { step: "settings" }
+  | { step: "failed"; error: PublicErrorShape; interruptedStep: number };
 
 type OnboardingAction =
+  | { type: "hydrated"; completed: boolean }
   | { type: "check-runtime" }
-  | { type: "runtime-missing"; error: PublicErrorShape }
+  | {
+      type: "runtime-missing";
+      error: PublicErrorShape;
+      showOriginGuidance: boolean;
+    }
+  | { type: "show-origin-guidance" }
   | { type: "origin-guidance"; error: PublicErrorShape }
   | { type: "models"; models: ModelInfo[] }
   | { type: "download"; progress: ModelDownloadEvent }
@@ -55,15 +67,56 @@ type OnboardingAction =
   | { type: "saved" }
   | { type: "failed"; error: PublicErrorShape };
 
+function onboardingStepNumber(state: OnboardingState): number {
+  switch (state.step) {
+    case "loading":
+    case "welcome":
+      return 1;
+    case "checking-runtime":
+      return 2;
+    case "runtime-missing":
+      return 3;
+    case "origin-guidance":
+      return 4;
+    case "choosing-model":
+      return 6;
+    case "downloading":
+      return 7;
+    case "preferences":
+      return 8;
+    case "context":
+      return 9;
+    case "permission":
+      return 10;
+    case "readiness":
+      return 11;
+    case "complete":
+    case "settings":
+      return 12;
+    case "failed":
+      return state.interruptedStep;
+  }
+}
+
 function reduceOnboarding(
   state: OnboardingState,
   action: OnboardingAction,
 ): OnboardingState {
   switch (action.type) {
+    case "hydrated":
+      return { step: action.completed ? "settings" : "welcome" };
     case "check-runtime":
       return { step: "checking-runtime" };
     case "runtime-missing":
-      return { step: "runtime-missing", error: action.error };
+      return {
+        step: "runtime-missing",
+        error: action.error,
+        showOriginGuidance: action.showOriginGuidance,
+      };
+    case "show-origin-guidance":
+      return state.step === "runtime-missing"
+        ? { step: "origin-guidance", error: state.error }
+        : state;
     case "origin-guidance":
       return { step: "origin-guidance", error: action.error };
     case "models":
@@ -83,11 +136,15 @@ function reduceOnboarding(
         permissionDenied: action.permissionDenied,
       };
     case "complete":
-      return { step: "complete", result: action.result, saved: false };
+      return { step: "complete", result: action.result };
     case "saved":
-      return state.step === "complete" ? { ...state, saved: true } : state;
+      return state.step === "complete" ? { step: "settings" } : state;
     case "failed":
-      return { step: "failed", error: action.error };
+      return {
+        step: "failed",
+        error: action.error,
+        interruptedStep: onboardingStepNumber(state),
+      };
   }
 }
 
@@ -101,6 +158,7 @@ function recoverableError(
 export interface OnboardingController {
   state: OnboardingState;
   preferences: ReadingPreferences;
+  showOriginGuidance(): void;
   checkRuntime(): void;
   downloadModel(model: string): void;
   useInstalledModel(model: string): void;
@@ -110,6 +168,7 @@ export interface OnboardingController {
   resolvePermission(granted: boolean, denied?: boolean): void;
   runReadiness(preferences?: ReadingPreferences, permissionDenied?: boolean): void;
   finish(): void;
+  updateSettings(patch: Partial<ReadingPreferences>): Promise<void>;
   retry(): void;
 }
 
@@ -133,7 +192,7 @@ export function useOnboarding({
   settingsRepository,
   getUiLanguage,
 }: UseOnboardingDependencies): OnboardingController {
-  const [state, dispatch] = useReducer(reduceOnboarding, { step: "welcome" });
+  const [state, dispatch] = useReducer(reduceOnboarding, { step: "loading" });
   const [preferences, setPreferences] = useState(() =>
     initialPreferences(getUiLanguage),
   );
@@ -152,6 +211,7 @@ export function useOnboarding({
       if (!mounted) return;
       preferencesRef.current = stored.preferences;
       setPreferences(stored.preferences);
+      dispatch({ type: "hydrated", completed: stored.onboardingVersion === 1 });
     });
     return () => {
       mounted = false;
@@ -205,6 +265,7 @@ export function useOnboarding({
                 "OLLAMA_UNREACHABLE",
                 event.health.message ?? "Ollama is not available.",
               ),
+            showOriginGuidance: event.health.secondaryAction === "show-origin-guidance",
           });
           return;
         case "models-result":
@@ -262,6 +323,10 @@ export function useOnboarding({
     dispatch({ type: "check-runtime" });
     send({ type: "check-runtime" });
   }, [send]);
+
+  const showOriginGuidance = useCallback((): void => {
+    dispatch({ type: "show-origin-guidance" });
+  }, []);
 
   const downloadModel = useCallback(
     (model: string): void => {
@@ -334,6 +399,14 @@ export function useOnboarding({
     });
   }, [send]);
 
+  const updateSettings = useCallback(
+    async (patch: Partial<ReadingPreferences>): Promise<void> => {
+      const stored = await settingsRepository.update(patch);
+      setChosenPreferences(stored.preferences);
+    },
+    [settingsRepository, setChosenPreferences],
+  );
+
   const retry = useCallback((): void => {
     const command = retryCommandRef.current;
     if (!command) return;
@@ -366,6 +439,7 @@ export function useOnboarding({
   return {
     state,
     preferences,
+    showOriginGuidance,
     checkRuntime,
     downloadModel,
     useInstalledModel,
@@ -375,6 +449,7 @@ export function useOnboarding({
     resolvePermission,
     runReadiness,
     finish,
+    updateSettings,
     retry,
   };
 }

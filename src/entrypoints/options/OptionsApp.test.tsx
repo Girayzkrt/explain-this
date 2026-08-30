@@ -14,7 +14,6 @@ import type {
 } from "../../features/onboarding/contracts";
 import { DEFAULT_PREFERENCES } from "../../features/settings/settings";
 import type { OnboardingClientConnection } from "../../features/onboarding/use-onboarding";
-import type { ReaderAccessService } from "../../platform/permissions/reader-access";
 import type {
   SettingsRepository,
   StoredSettings,
@@ -54,9 +53,9 @@ class FakeClient implements OnboardingClientConnection {
   }
 }
 
-function storedSettings(): StoredSettings {
+function storedSettings(onboardingVersion: 0 | 1 = 0): StoredSettings {
   return {
-    onboardingVersion: 1,
+    onboardingVersion,
     preferences: {
       ...DEFAULT_PREFERENCES,
       preferredLanguage: "Dutch",
@@ -90,10 +89,12 @@ function createHarness(overrides: Partial<OptionsAppDependencies> = {}) {
       return structuredClone(settings);
     },
   };
-  const readerAccess: Pick<ReaderAccessService, "enableAutomaticAccess"> = {
-    async enableAutomaticAccess() {
-      return { granted: false };
+  const readerAccess: OptionsAppDependencies["readerAccess"] = {
+    async requestAutomaticAccess() {
+      return false;
     },
+    async registerAutomaticAccess() {},
+    async disableAutomaticAccess() {},
   };
   const dependencies: OptionsAppDependencies = {
     createClient() {
@@ -115,7 +116,9 @@ function createHarness(overrides: Partial<OptionsAppDependencies> = {}) {
   };
   render(<OptionsApp dependencies={dependencies} />);
   return {
+    dependencies,
     clients,
+    settings,
     updates,
     get client() {
       const client = clients.at(-1);
@@ -126,7 +129,9 @@ function createHarness(overrides: Partial<OptionsAppDependencies> = {}) {
 }
 
 async function startRuntimeCheck(harness: ReturnType<typeof createHarness>) {
-  await userEvent.click(screen.getByRole("button", { name: /start local setup/i }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: /start local setup/i }),
+  );
   expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
   expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
 }
@@ -182,13 +187,63 @@ describe("options onboarding", () => {
     createHarness();
 
     expect(
-      screen.getByRole("heading", { name: /understand text locally/i }),
+      await screen.findByRole("heading", { name: /understand text locally/i }),
     ).toBeVisible();
     expect(
       screen.getByRole("progressbar", { name: /setup progress/i }),
     ).toHaveAttribute("max", "12");
     expect(screen.getByText(/text → localhost → explanation/i)).toBeVisible();
     expect(screen.getAllByRole("listitem")).toHaveLength(12);
+  });
+
+  it("waits for settings hydration before mounting an incomplete setup form", async () => {
+    const hydration = deferred<StoredSettings>();
+    createHarness({
+      settingsRepository: {
+        get: () => hydration.promise,
+        async update() {
+          throw new Error("not used");
+        },
+        async markOnboardingComplete() {
+          throw new Error("not used");
+        },
+      },
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/loading settings/i);
+    expect(
+      screen.queryByRole("heading", { name: /understand text locally/i }),
+    ).not.toBeInTheDocument();
+
+    await act(async () => hydration.resolve(storedSettings(0)));
+    expect(
+      screen.getByRole("heading", { name: /understand text locally/i }),
+    ).toBeVisible();
+  });
+
+  it("opens completed onboarding in the settings experience without readiness output", async () => {
+    createHarness({
+      settingsRepository: {
+        async get() {
+          return storedSettings(1);
+        },
+        async update(patch) {
+          return {
+            ...storedSettings(1),
+            preferences: { ...storedSettings(1).preferences, ...patch },
+          };
+        },
+        async markOnboardingComplete() {
+          return storedSettings(1);
+        },
+      },
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+    expect(screen.getByRole("textbox", { name: /blocked host/i })).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/tokens\/s|first response/i);
   });
 
   it("shows checking, missing-runtime recovery, and only the official HTTPS installer", async () => {
@@ -241,6 +296,33 @@ describe("options onboarding", () => {
       screen.getByText("chrome-extension://runtime-id", { selector: "code" }),
     ).toBeVisible();
     expect(document.body.textContent).not.toContain("chrome-extension://*");
+  });
+
+  it("preserves the runtime secondary action as an explicit guidance button", async () => {
+    const harness = createHarness();
+    await startRuntimeCheck(harness);
+
+    act(() => {
+      harness.client.emit({
+        type: "runtime-result",
+        health: {
+          available: false,
+          status: "unreachable",
+          message: "Ollama could not be reached.",
+          secondaryAction: "show-origin-guidance",
+        },
+      });
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /show exact-origin guidance/i }),
+    );
+    expect(
+      screen.getByRole("heading", { name: /allow this extension in ollama/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("chrome-extension://runtime-id", { selector: "code" }),
+    ).toBeVisible();
   });
 
   it("shows the recommended model name and size before explicit download confirmation", async () => {
@@ -301,6 +383,15 @@ describe("options onboarding", () => {
     cancel.focus();
     await userEvent.keyboard("{Enter}");
     expect(harness.client.sent.at(-1)).toEqual({ type: "cancel-download" });
+    expect(screen.getByRole("progressbar", { name: /setup progress/i })).toHaveValue(7);
+  });
+
+  it("moves keyboard focus to the active step heading after a transition", async () => {
+    const harness = createHarness();
+
+    await startRuntimeCheck(harness);
+
+    expect(screen.getByRole("heading", { name: /checking ollama/i })).toHaveFocus();
   });
 
   it("requires language confirmation and keeps both privacy choices off by default", async () => {
@@ -323,10 +414,12 @@ describe("options onboarding", () => {
     let permissionCalls = 0;
     const harness = createHarness({
       readerAccess: {
-        enableAutomaticAccess() {
+        requestAutomaticAccess() {
           permissionCalls += 1;
-          return permission.promise;
+          return permission.promise.then(({ granted }) => granted);
         },
+        async registerAutomaticAccess() {},
+        async disableAutomaticAccess() {},
       },
     });
     await reachPermission(harness);
@@ -344,6 +437,153 @@ describe("options onboarding", () => {
       preferences: { automaticToolbar: false, includeNearbyContext: false },
     });
   });
+
+  it("persists granted consent immediately before registering the automatic reader", async () => {
+    const order: string[] = [];
+    const settings = storedSettings(0);
+    const permissionAccess = {
+      async enableAutomaticAccess() {
+        order.push("request", "register");
+        return { granted: true };
+      },
+      requestAutomaticAccess() {
+        order.push("request");
+        return Promise.resolve(true);
+      },
+      async registerAutomaticAccess() {
+        order.push("register");
+      },
+      async disableAutomaticAccess() {
+        order.push("cleanup");
+      },
+    };
+    const harness = createHarness({
+      readerAccess: permissionAccess,
+      settingsRepository: {
+        async get() {
+          return structuredClone(settings);
+        },
+        async update(patch) {
+          order.push(`persist:${String(patch.automaticToolbar)}`);
+          settings.preferences = { ...settings.preferences, ...patch };
+          return structuredClone(settings);
+        },
+        async markOnboardingComplete() {
+          return structuredClone(settings);
+        },
+      },
+    });
+    await reachPermission(harness);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /enable automatic actions/i }),
+    );
+    await screen.findByRole("heading", { name: /testing your local model/i });
+
+    expect(order).toEqual(["request", "persist:true", "register"]);
+  });
+
+  it("persists denial as false without registering", async () => {
+    const order: string[] = [];
+    const settings = storedSettings(0);
+    const permissionAccess = {
+      async enableAutomaticAccess() {
+        order.push("request");
+        return { granted: false };
+      },
+      requestAutomaticAccess() {
+        order.push("request");
+        return Promise.resolve(false);
+      },
+      async registerAutomaticAccess() {
+        order.push("register");
+      },
+      async disableAutomaticAccess() {
+        order.push("cleanup");
+      },
+    };
+    const harness = createHarness({
+      readerAccess: permissionAccess,
+      settingsRepository: {
+        async get() {
+          return structuredClone(settings);
+        },
+        async update(patch) {
+          order.push(`persist:${String(patch.automaticToolbar)}`);
+          settings.preferences = { ...settings.preferences, ...patch };
+          return structuredClone(settings);
+        },
+        async markOnboardingComplete() {
+          return structuredClone(settings);
+        },
+      },
+    });
+    await reachPermission(harness);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /enable automatic actions/i }),
+    );
+    await screen.findByRole("heading", { name: /testing your local model/i });
+
+    expect(order).toEqual(["request", "persist:false"]);
+  });
+
+  it.each(["persistence", "registration"] as const)(
+    "rolls back consent and access when %s fails",
+    async (failurePoint) => {
+      const order: string[] = [];
+      const settings = storedSettings(0);
+      const permissionAccess = {
+        async enableAutomaticAccess() {
+          order.push("request", "register");
+          return { granted: true };
+        },
+        requestAutomaticAccess() {
+          order.push("request");
+          return Promise.resolve(true);
+        },
+        async registerAutomaticAccess() {
+          order.push("register");
+          if (failurePoint === "registration") throw new Error("register failed");
+        },
+        async disableAutomaticAccess() {
+          order.push("cleanup");
+        },
+      };
+      const harness = createHarness({
+        readerAccess: permissionAccess,
+        settingsRepository: {
+          async get() {
+            return structuredClone(settings);
+          },
+          async update(patch) {
+            order.push(`persist:${String(patch.automaticToolbar)}`);
+            if (failurePoint === "persistence") {
+              throw new Error("persist failed");
+            }
+            settings.preferences = { ...settings.preferences, ...patch };
+            return structuredClone(settings);
+          },
+          async markOnboardingComplete() {
+            return structuredClone(settings);
+          },
+        },
+      });
+      await reachPermission(harness);
+
+      await userEvent.click(
+        screen.getByRole("button", { name: /enable automatic actions/i }),
+      );
+      await screen.findByRole("heading", { name: /testing your local model/i });
+
+      expect(order.at(-2)).toBe("persist:false");
+      expect(order.at(-1)).toBe("cleanup");
+      expect(harness.client.sent.at(-1)).toMatchObject({
+        type: "run-readiness",
+        preferences: { automaticToolbar: false },
+      });
+    },
+  );
 
   it("reports readiness warnings and persists preferences without private or generated content", async () => {
     const harness = createHarness();
@@ -410,7 +650,7 @@ describe("options onboarding", () => {
     expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
   });
 
-  it("offers a local blocked-host editor after setup", async () => {
+  it("offers one blocked-host editor only after setup is saved", async () => {
     const harness = createHarness();
     await reachPermission(harness);
     await userEvent.click(screen.getByRole("button", { name: /not now/i }));
@@ -426,6 +666,18 @@ describe("options onboarding", () => {
       });
     });
 
+    expect(
+      screen.queryByRole("textbox", { name: /blocked host/i }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /finish setup/i }));
+    const completion = harness.client.sent.at(-1);
+    expect(completion).toMatchObject({
+      type: "complete-onboarding",
+      preferences: { blockedSites: [] },
+    });
+    harness.settings.onboardingVersion = 1;
+    act(() => harness.client.emit({ type: "onboarding-complete" }));
+
     await userEvent.type(
       screen.getByRole("textbox", { name: /blocked host/i }),
       "news.example",
@@ -434,8 +686,16 @@ describe("options onboarding", () => {
     await waitFor(() =>
       expect(harness.updates).toContainEqual({ blockedSites: ["news.example"] }),
     );
+    expect(completion).toMatchObject({ preferences: { blockedSites: [] } });
     expect(JSON.stringify(harness.updates)).not.toMatch(
       /prompt|selected|readiness|output/i,
     );
+
+    cleanup();
+    render(<OptionsApp dependencies={harness.dependencies} />);
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+    expect(screen.getByText("news.example", { selector: "code" })).toBeVisible();
   });
 });

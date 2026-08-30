@@ -1,6 +1,7 @@
 import type { ReadingAction } from "../../core/requests/types";
 import type { PortLike, TrustedPortSender } from "../../platform/messaging/port";
 import type { ReaderInvocationCommand } from "../../platform/messaging/reader-command";
+import type { SettingsRepository } from "../../platform/storage/settings-repository";
 
 export const READER_PORT_NAME = "explain-this-reader";
 
@@ -54,8 +55,10 @@ export interface BackgroundDependencies {
     injectForExplicitAction(tabId: number, pageUrl: string): Promise<void>;
     invalidateExplicitInjection(tabId: number): void;
     forgetExplicitInjection(tabId: number): void;
-    restoreAutomaticAccess(): Promise<void>;
+    restoreAutomaticAccess(): Promise<boolean>;
+    disableAutomaticAccess(): Promise<void>;
   };
+  settingsRepository: Pick<SettingsRepository, "get" | "update">;
   coordinator: {
     handle(port: PortLike, sender: TrustedPortSender): void;
     cancelForTab(tabId: number): Promise<void>;
@@ -204,8 +207,29 @@ export function createBackgroundHandlers(
 export async function initializeBackgroundServices(
   dependencies: BackgroundDependencies,
 ): Promise<void> {
+  const initializeAutomaticAccess = async (): Promise<void> => {
+    const stored = await dependencies.settingsRepository.get();
+    if (!stored.preferences.automaticToolbar) {
+      await dependencies.readerAccess.disableAutomaticAccess();
+      return;
+    }
+
+    let restored = false;
+    try {
+      restored = await dependencies.readerAccess.restoreAutomaticAccess();
+    } catch {
+      // The fallback below returns storage and registration to the disabled state.
+    }
+    if (restored) return;
+
+    await Promise.allSettled([
+      dependencies.settingsRepository.update({ automaticToolbar: false }),
+      dependencies.readerAccess.disableAutomaticAccess(),
+    ]);
+  };
+
   await Promise.all([
     dependencies.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }),
-    dependencies.readerAccess.restoreAutomaticAccess(),
+    initializeAutomaticAccess(),
   ]);
 }

@@ -7,7 +7,8 @@ import {
 import type { StorageAreaLike } from "./storage-area";
 
 const SETTINGS_KEY = "settings";
-const CURRENT_ONBOARDING_VERSION = 1 as const;
+export const CURRENT_ONBOARDING_VERSION = 1 as const;
+export type OnboardingVersion = 0 | typeof CURRENT_ONBOARDING_VERSION;
 
 const StrictReadingPreferencesSchema = ReadingPreferencesSchema.strict();
 const PersistedSettingsSchema = z
@@ -18,7 +19,7 @@ const PersistedSettingsSchema = z
   .strict();
 
 export interface StoredSettings {
-  onboardingVersion: typeof CURRENT_ONBOARDING_VERSION;
+  onboardingVersion: OnboardingVersion;
   preferences: ReadingPreferences;
 }
 
@@ -67,10 +68,9 @@ class LocalSettingsRepository implements SettingsRepository {
     }
 
     const settings: StoredSettings = {
-      onboardingVersion: CURRENT_ONBOARDING_VERSION,
+      onboardingVersion: parsed.data.onboardingVersion,
       preferences: parsed.data.preferences,
     };
-    if (parsed.data.onboardingVersion === 0) await this.persist(settings);
     return settings;
   }
 
@@ -86,7 +86,7 @@ class LocalSettingsRepository implements SettingsRepository {
     if (!preferences.success) return current;
 
     const updated: StoredSettings = {
-      onboardingVersion: CURRENT_ONBOARDING_VERSION,
+      onboardingVersion: current.onboardingVersion,
       preferences: preferences.data,
     };
     await this.persist(updated);
@@ -94,14 +94,18 @@ class LocalSettingsRepository implements SettingsRepository {
   }
 
   async markOnboardingComplete(): Promise<StoredSettings> {
-    const settings = await this.get();
-    await this.persist(settings);
-    return settings;
+    const current = await this.get();
+    const completed: StoredSettings = {
+      ...current,
+      onboardingVersion: CURRENT_ONBOARDING_VERSION,
+    };
+    await this.persist(completed);
+    return completed;
   }
 
   private defaults(): StoredSettings {
     return {
-      onboardingVersion: CURRENT_ONBOARDING_VERSION,
+      onboardingVersion: 0,
       preferences: defaultPreferences(this.getUiLanguage()),
     };
   }

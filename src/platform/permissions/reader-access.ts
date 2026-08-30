@@ -15,9 +15,11 @@ export interface ReaderAccessService {
   injectForExplicitAction(tabId: number, pageUrl: string): Promise<void>;
   invalidateExplicitInjection(tabId: number): void;
   forgetExplicitInjection(tabId: number): void;
+  requestAutomaticAccess(): Promise<boolean>;
+  registerAutomaticAccess(): Promise<void>;
   enableAutomaticAccess(): Promise<{ granted: boolean }>;
   disableAutomaticAccess(): Promise<void>;
-  restoreAutomaticAccess(): Promise<void>;
+  restoreAutomaticAccess(): Promise<boolean>;
 }
 
 export class ReaderAccessController implements ReaderAccessService {
@@ -78,17 +80,25 @@ export class ReaderAccessController implements ReaderAccessService {
     }
   }
 
-  async enableAutomaticAccess(): Promise<{ granted: boolean }> {
+  enableAutomaticAccess(): Promise<{ granted: boolean }> {
     if (this.automaticEnableInFlight) return this.automaticEnableInFlight;
 
     const enable = this.enableAutomaticAccessOnce();
     this.automaticEnableInFlight = enable;
-    try {
-      return await enable;
-    } finally {
+    const clearInFlight = (): void => {
       if (this.automaticEnableInFlight === enable)
         this.automaticEnableInFlight = undefined;
-    }
+    };
+    void enable.then(clearInFlight, clearInFlight);
+    return enable;
+  }
+
+  requestAutomaticAccess(): Promise<boolean> {
+    return this.browser.requestOrigins([...AUTOMATIC_READER_ORIGINS]);
+  }
+
+  registerAutomaticAccess(): Promise<void> {
+    return this.ensureAutomaticReaderRegistered();
   }
 
   async disableAutomaticAccess(): Promise<void> {
@@ -96,22 +106,19 @@ export class ReaderAccessController implements ReaderAccessService {
     await this.browser.removeOrigins([...AUTOMATIC_READER_ORIGINS]);
   }
 
-  async restoreAutomaticAccess(): Promise<void> {
+  async restoreAutomaticAccess(): Promise<boolean> {
     const granted = await this.browser.containsOrigins([...AUTOMATIC_READER_ORIGINS]);
-    if (granted) await this.ensureAutomaticReaderRegistered();
+    if (!granted) return false;
+    await this.ensureAutomaticReaderRegistered();
+    return true;
   }
 
   private async enableAutomaticAccessOnce(): Promise<{ granted: boolean }> {
-    const alreadyGranted = await this.browser.containsOrigins([
-      ...AUTOMATIC_READER_ORIGINS,
-    ]);
-    const granted =
-      alreadyGranted ||
-      (await this.browser.requestOrigins([...AUTOMATIC_READER_ORIGINS]));
+    const granted = await this.requestAutomaticAccess();
 
     if (!granted) return { granted: false };
 
-    await this.ensureAutomaticReaderRegistered();
+    await this.registerAutomaticAccess();
     return { granted: true };
   }
 

@@ -84,6 +84,24 @@ describe("ReaderAccessController", () => {
     await Promise.all([newerInjection, sharedNewerInjection]);
   });
 
+  it("forgets a removed tab without letting stale injection completion return", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const staleExecution = browser.deferNextReaderExecution();
+    const access = new ReaderAccessController(browser);
+
+    const staleInjection = access.injectForExplicitAction(
+      42,
+      "https://docs.example/article",
+    );
+    await staleExecution.waitUntilStarted();
+    access.forgetExplicitInjection(42);
+    staleExecution.resolve();
+    await staleInjection;
+
+    await access.injectForExplicitAction(42, "https://docs.example/article");
+    expect(browser.executedTabs).toEqual([42, 42]);
+  });
+
   it("shares concurrent page injection and clears the failed work for retry", async () => {
     const browser = new FakeReaderBrowserApi();
     const failure = new Error("script injection failed");

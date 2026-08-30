@@ -640,12 +640,12 @@ describe("RequestCoordinator", () => {
     port.send({ type: "start-request", request: request() });
     await waitForCalls(provider, 1);
 
-    coordinator.cancelForTab(TAB_ID);
+    const cleanup = coordinator.cancelForTab(TAB_ID);
 
     expect(provider.calls[0]?.signal.aborted).toBe(true);
-    await vi.waitFor(async () =>
-      expect(await sessionRepository.getPrivateSource(TAB_ID)).toBeUndefined(),
-    );
+    expect(cleanup).toBeInstanceOf(Promise);
+    await cleanup;
+    expect(await sessionRepository.getPrivateSource(TAB_ID)).toBeUndefined();
     release.resolve();
   });
 });

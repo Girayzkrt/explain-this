@@ -169,15 +169,15 @@ export class RequestCoordinator {
     port.onDisconnect.addListener(onDisconnect);
   }
 
-  cancelForTab(tabId: number): void {
-    if (!Number.isInteger(tabId) || tabId < 0) return;
+  cancelForTab(tabId: number): Promise<void> {
+    if (!Number.isInteger(tabId) || tabId < 0) return Promise.resolve();
     if (this.active?.tabId === tabId) {
       const active = this.active;
       this.active = undefined;
       active.controller.abort();
     }
     this.tabOwnership.delete(tabId);
-    void this.removeTabState(tabId);
+    return this.removeTabState(tabId);
   }
 
   private async handleCommand(

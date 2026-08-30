@@ -14,6 +14,7 @@ export class ReaderAccessError extends Error {
 export interface ReaderAccessService {
   injectForExplicitAction(tabId: number, pageUrl: string): Promise<void>;
   invalidateExplicitInjection(tabId: number): void;
+  forgetExplicitInjection(tabId: number): void;
   enableAutomaticAccess(): Promise<{ granted: boolean }>;
   disableAutomaticAccess(): Promise<void>;
   restoreAutomaticAccess(): Promise<void>;
@@ -22,7 +23,7 @@ export interface ReaderAccessService {
 export class ReaderAccessController implements ReaderAccessService {
   private readonly explicitlyInjectedPages = new Set<string>();
   private readonly explicitInjectionInFlight = new Map<string, Promise<void>>();
-  private readonly explicitInjectionGenerations = new Map<number, number>();
+  private readonly explicitInjectionGenerations = new Map<number, object>();
   private automaticEnableInFlight: Promise<{ granted: boolean }> | undefined;
   private automaticRegistrationInFlight: Promise<void> | undefined;
 
@@ -44,7 +45,7 @@ export class ReaderAccessController implements ReaderAccessService {
     const injection = Promise.resolve()
       .then(() => this.browser.executeReader(tabId))
       .then(() => {
-        if (this.getExplicitInjectionGeneration(tabId) === generation)
+        if (this.explicitInjectionGenerations.get(tabId) === generation)
           this.explicitlyInjectedPages.add(pageKey);
       });
     this.explicitInjectionInFlight.set(pageKey, injection);
@@ -58,10 +59,16 @@ export class ReaderAccessController implements ReaderAccessService {
   }
 
   invalidateExplicitInjection(tabId: number): void {
-    this.explicitInjectionGenerations.set(
-      tabId,
-      this.getExplicitInjectionGeneration(tabId) + 1,
-    );
+    this.explicitInjectionGenerations.set(tabId, {});
+    this.clearExplicitInjectionState(tabId);
+  }
+
+  forgetExplicitInjection(tabId: number): void {
+    this.explicitInjectionGenerations.delete(tabId);
+    this.clearExplicitInjectionState(tabId);
+  }
+
+  private clearExplicitInjectionState(tabId: number): void {
     const keyPrefix = `${tabId}\u0000`;
     for (const pageKey of this.explicitlyInjectedPages) {
       if (pageKey.startsWith(keyPrefix)) this.explicitlyInjectedPages.delete(pageKey);
@@ -126,8 +133,13 @@ export class ReaderAccessController implements ReaderAccessService {
     await this.browser.registerReader([...AUTOMATIC_READER_ORIGINS]);
   }
 
-  private getExplicitInjectionGeneration(tabId: number): number {
-    return this.explicitInjectionGenerations.get(tabId) ?? 0;
+  private getExplicitInjectionGeneration(tabId: number): object {
+    const current = this.explicitInjectionGenerations.get(tabId);
+    if (current) return current;
+
+    const created = {};
+    this.explicitInjectionGenerations.set(tabId, created);
+    return created;
   }
 }
 

@@ -23,7 +23,10 @@ export interface PublicErrorShape {
 
 export interface ProviderHealth {
   available: boolean;
+  status?: "ready" | "model-required" | "unreachable" | "origin-blocked" | "error";
   message?: string;
+  error?: PublicErrorShape;
+  secondaryAction?: "show-origin-guidance";
 }
 
 export interface ModelInfo {

@@ -6,6 +6,13 @@ import {
   type BrowserPort,
 } from "../features/reader/background-events";
 import { RequestCoordinator } from "../features/reader/request-coordinator";
+import { ModelConcurrencyGate } from "../core/requests/model-concurrency-gate";
+import {
+  isTrustedOnboardingPort,
+  OnboardingService,
+} from "../features/onboarding/onboarding-service";
+import type { OnboardingEvent } from "../features/onboarding/contracts";
+import type { PortLike } from "../platform/messaging/port";
 import { readerBrowserApi } from "../platform/permissions/browser-api";
 import { ReaderAccessController } from "../platform/permissions/reader-access";
 import {
@@ -76,7 +83,7 @@ function withSessionStorageReadiness(
 
 function createProductionBackgroundDependencies(
   storageReadiness: Promise<boolean>,
-): BackgroundDependencies {
+): BackgroundDependencies & { onboardingService: OnboardingService } {
   const storage = getExtensionStorageAreas();
   const settingsRepository = withStorageReadiness(
     createSettingsRepository(storage.local, () => browser.i18n.getUILanguage()),
@@ -87,10 +94,19 @@ function createProductionBackgroundDependencies(
     storageReadiness,
   );
   const readerAccess = new ReaderAccessController(readerBrowserApi);
+  const provider = new OllamaProvider({ baseUrl: OLLAMA_BASE_URL });
+  const modelGate = new ModelConcurrencyGate();
   const coordinator = new RequestCoordinator({
-    provider: new OllamaProvider({ baseUrl: OLLAMA_BASE_URL }),
+    provider,
     sessionRepository,
     settingsRepository,
+    modelGate,
+  });
+  const onboardingService = new OnboardingService({
+    provider,
+    settingsRepository,
+    modelGate,
+    now: () => performance.now(),
   });
 
   return {
@@ -114,6 +130,7 @@ function createProductionBackgroundDependencies(
     },
     readerAccess,
     coordinator,
+    onboardingService,
   };
 }
 
@@ -127,7 +144,14 @@ export default defineBackground(() => {
   browser.commands.onCommand.addListener(handlers.onCommand);
   browser.tabs.onRemoved.addListener(handlers.onTabRemoved);
   browser.runtime.onConnect.addListener((port) => {
-    handlers.onPortConnected(port as unknown as BrowserPort);
+    const browserPort = port as unknown as BrowserPort;
+    if (isTrustedOnboardingPort(browserPort, browser.runtime.getURL("/"))) {
+      dependencies.onboardingService.handle(
+        port as unknown as PortLike<OnboardingEvent>,
+      );
+      return;
+    }
+    handlers.onPortConnected(browserPort);
   });
 
   void initializeBackgroundServices(dependencies).catch((error: unknown) => {

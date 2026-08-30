@@ -1,6 +1,7 @@
 import { buildChatRequest } from "../../core/prompts/prompt-builder";
 import { enforceReadingBudget } from "../../core/requests/budget";
 import { PublicError } from "../../core/requests/public-error";
+import { ModelConcurrencyGate } from "../../core/requests/model-concurrency-gate";
 import { validateReadingRequest } from "../../core/requests/schemas";
 import type { FollowUpIntent, ReadingRequest } from "../../core/requests/types";
 import { acceptStreamEvent, createStreamSequence } from "../../core/streaming/sequence";
@@ -30,6 +31,7 @@ export interface RequestCoordinatorDependencies {
   provider: LlmProvider;
   sessionRepository: SessionRepository;
   settingsRepository: SettingsRepository;
+  modelGate?: ModelConcurrencyGate;
 }
 
 interface TrustedReaderIdentity {
@@ -112,7 +114,11 @@ export class RequestCoordinator {
   private commandQueue: Promise<void> = Promise.resolve();
   private mutationQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly dependencies: RequestCoordinatorDependencies) {}
+  private readonly modelGate: ModelConcurrencyGate;
+
+  constructor(private readonly dependencies: RequestCoordinatorDependencies) {
+    this.modelGate = dependencies.modelGate ?? new ModelConcurrencyGate();
+  }
 
   handle(port: PortLike, sender: TrustedPortSender): void {
     let identity: TrustedReaderIdentity;
@@ -438,13 +444,15 @@ export class RequestCoordinator {
     };
 
     try {
-      for await (const event of this.dependencies.provider.streamChat(
-        generation.requestId,
-        chatRequest,
-        generation.controller.signal,
-      )) {
-        await applyEvent(event);
-      }
+      await this.modelGate.runExclusive(generation.controller.signal, async () => {
+        for await (const event of this.dependencies.provider.streamChat(
+          generation.requestId,
+          chatRequest,
+          generation.controller.signal,
+        )) {
+          await applyEvent(event);
+        }
+      });
     } catch (error) {
       if (!terminal && this.active === generation) {
         const event: StreamEvent = generation.controller.signal.aborted

@@ -6,8 +6,8 @@ export interface ListenerSet<T> {
 }
 
 /** JSON-message-only subset shared by Chrome runtime ports and coordinator tests. */
-export interface PortLike {
-  postMessage(message: BackgroundPortMessage): void;
+export interface PortLike<TOutgoing = BackgroundPortMessage> {
+  postMessage(message: TOutgoing): void;
   onMessage: ListenerSet<(message: unknown) => void>;
   onDisconnect: ListenerSet<() => void>;
   disconnect(): void;

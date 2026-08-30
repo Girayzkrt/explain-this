@@ -501,6 +501,8 @@ describe("RequestCoordinator", () => {
     firstPort.send({ type: "start-request", request: request() });
     await waitForCalls(provider, 1);
     secondPort.send({ type: "start-request", request: request(REQUEST_2) });
+    expect(provider.calls).toHaveLength(1);
+    leakStaleEvent.resolve();
     await waitForCalls(provider, 2);
     await vi.waitFor(async () =>
       expect(await sessionRepository.getReaderSession(TAB_ID)).toMatchObject({
@@ -508,9 +510,6 @@ describe("RequestCoordinator", () => {
         answer: "new answer",
       }),
     );
-
-    leakStaleEvent.resolve();
-
     await vi.waitFor(async () =>
       expect(await sessionRepository.getReaderSession(TAB_ID)).toMatchObject({
         requestId: REQUEST_2,

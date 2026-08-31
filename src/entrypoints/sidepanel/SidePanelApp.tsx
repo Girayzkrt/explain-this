@@ -97,7 +97,9 @@ export function SidePanelApp({ controller, copyText, optionsUrl }: SidePanelAppP
               : "Explaining locally…"}
           </p>
         ) : null}
-        {visibleError ? <PublicErrorNotice error={visibleError} /> : null}
+        {visibleError ? (
+          <PublicErrorNotice error={visibleError} onRetry={() => controller.retry()} />
+        ) : null}
         {incomplete && session.answer ? (
           <p className="incomplete-label">Incomplete output</p>
         ) : null}
@@ -111,7 +113,7 @@ export function SidePanelApp({ controller, copyText, optionsUrl }: SidePanelAppP
               Stop
             </button>
           ) : null}
-          {session.status === "cancelled" || session.status === "failed" ? (
+          {session.status === "cancelled" ? (
             <button type="button" onClick={() => controller.retry()}>
               Retry
             </button>

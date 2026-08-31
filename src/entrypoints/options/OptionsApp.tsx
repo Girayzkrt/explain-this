@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
+import { DiagnosticsView } from "../../features/onboarding/DiagnosticsView";
+import type { DiagnosticFacts } from "../../features/onboarding/diagnostics";
 import type { OriginGuidance } from "../../features/onboarding/origin-guidance";
 import {
   useOnboarding,
@@ -39,6 +41,8 @@ export interface OptionsAppDependencies {
   >;
   getUiLanguage(): string;
   getOriginGuidance(): OriginGuidance;
+  getDiagnosticFacts?(): DiagnosticFacts;
+  copyDiagnosticReport?(report: string): Promise<void>;
 }
 
 export interface OptionsAppProps {
@@ -252,11 +256,16 @@ function ActiveStep({
     case "complete":
       return <ReadyStep controller={controller} resultState={state} />;
     case "settings":
-      return <SettingsStep controller={controller} />;
+      return <SettingsStep controller={controller} dependencies={dependencies} />;
     case "failed":
       return (
         <StepFrame eyebrow="Setup paused" heading="This step didn’t finish">
-          <PublicErrorNotice error={state.error} onRetry={controller.retry} />
+          <PublicErrorNotice
+            error={state.error}
+            onRetry={controller.retry}
+            onShowOriginSteps={controller.showOriginGuidance}
+            onContinueWithoutAccess={() => controller.resolvePermission(false, true)}
+          />
         </StepFrame>
       );
   }
@@ -706,7 +715,13 @@ function ReadyStep({
   );
 }
 
-function SettingsStep({ controller }: { controller: OnboardingController }) {
+function SettingsStep({
+  controller,
+  dependencies,
+}: {
+  controller: OnboardingController;
+  dependencies: OptionsAppDependencies;
+}) {
   const [blockedSites, setBlockedSites] = useState(controller.preferences.blockedSites);
   const [blockedHost, setBlockedHost] = useState("");
 
@@ -769,6 +784,17 @@ function SettingsStep({ controller }: { controller: OnboardingController }) {
           <p className="empty-note">No blocked hosts.</p>
         )}
       </div>
+      {dependencies.getDiagnosticFacts && dependencies.copyDiagnosticReport ? (
+        <DiagnosticsView
+          facts={{
+            ...dependencies.getDiagnosticFacts(),
+            selectedModel: { name: controller.preferences.selectedModel },
+            automaticToolbar: controller.preferences.automaticToolbar,
+            onboardingVersion: 1,
+          }}
+          copyReport={dependencies.copyDiagnosticReport}
+        />
+      ) : null}
     </StepFrame>
   );
 }

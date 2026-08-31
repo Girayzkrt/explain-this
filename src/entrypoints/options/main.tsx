@@ -30,6 +30,12 @@ const dependencies: OptionsAppDependencies = {
   readerAccess: new ReaderAccessController(readerBrowserApi),
   getUiLanguage: () => browser.i18n.getUILanguage(),
   getOriginGuidance: () => getOriginGuidance(currentPlatform(), browser.runtime.id),
+  getDiagnosticFacts: () => ({
+    extensionVersion: browser.runtime.getManifest().version,
+    platform: navigator.platform,
+    endpoint: { hostname: "127.0.0.1" },
+  }),
+  copyDiagnosticReport: (report) => navigator.clipboard.writeText(report),
 };
 
 const root = document.getElementById("root");

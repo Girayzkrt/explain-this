@@ -1,5 +1,6 @@
 import type { FollowUpIntent } from "../core/requests/types";
 import type { ReaderUiState } from "../features/reader/reader-controller";
+import { PublicErrorNotice } from "./PublicErrorNotice";
 import { SafeMarkdown } from "./SafeMarkdown";
 
 type ResponseState = Exclude<ReaderUiState, { status: "idle" | "actions" }>;
@@ -76,9 +77,12 @@ export function ResponseCard({
         </p>
       ) : null}
       {state.status === "failed" ? (
-        <div className="reader-alert" role="alert">
-          {state.error.message}
-        </div>
+        <PublicErrorNotice
+          error={state.error}
+          onRetry={onRetry}
+          onDismiss={onClose}
+          onSelectLessText={onClose}
+        />
       ) : null}
       {sidePanelError ? (
         <div className="reader-alert" role="alert">
@@ -99,11 +103,6 @@ export function ResponseCard({
           {active ? (
             <button type="button" onClick={onStop}>
               Stop
-            </button>
-          ) : null}
-          {state.status === "failed" && state.error.recoverable ? (
-            <button type="button" onClick={onRetry}>
-              Retry
             </button>
           ) : null}
           {answer ? (

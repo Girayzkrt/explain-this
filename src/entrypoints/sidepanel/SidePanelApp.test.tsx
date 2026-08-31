@@ -124,12 +124,20 @@ describe("focused explanation side panel", () => {
     act(() => {
       controller.setState({
         status: "session",
-        session: session({ status: "failed", answer: "A partial answer" }),
+        session: session({
+          status: "failed",
+          answer: "A partial answer",
+          error: {
+            code: "PROVIDER_ERROR",
+            message: "private provider detail",
+            recoverable: true,
+          },
+        }),
       });
     });
     expect(screen.getByText("A partial answer")).toBeVisible();
     expect(screen.getByText(/incomplete output/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
   });
 
   it("exposes only bounded typed follow-ups and keeps their accessible order", async () => {
@@ -187,14 +195,17 @@ describe("focused explanation side panel", () => {
         status: "session",
         session: session({ status: "failed" }),
         actionError: {
-          code: "INVALID_REQUEST",
-          message: "Select the passage again to continue.",
-          recoverable: false,
+          code: "PROVIDER_ERROR",
+          message: "Select the passage again: private provider body",
+          recoverable: true,
         },
       });
     });
-    expect(screen.getByRole("alert")).toHaveTextContent(/select the passage again/i);
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /local model could not finish/i,
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/private provider body/i);
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(controller.retryCalls).toBe(1);
   });
 });

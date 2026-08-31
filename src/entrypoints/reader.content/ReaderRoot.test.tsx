@@ -218,9 +218,12 @@ describe("reader in-page UI", () => {
     harness.delta("Partial answer");
     harness.connection.suspend();
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/connection.*interrupted/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /local model could not finish/i,
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/connection.*interrupted/i);
     expect(screen.getByText(/incomplete/i)).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    await userEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(harness.connection.sent).toContainEqual({
       type: "retry-request",
       requestId: REQUEST_ID,

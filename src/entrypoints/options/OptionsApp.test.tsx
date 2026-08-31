@@ -265,7 +265,8 @@ describe("options onboarding", () => {
       });
     });
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Ollama is not running");
+    expect(screen.getByRole("alert")).toHaveTextContent("Local model unavailable");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Ollama is not running");
     const install = screen.getByRole("link", { name: /install ollama/i });
     expect(install).toHaveAttribute("href", "https://ollama.com/download");
     expect(install).toHaveAttribute("rel", expect.stringContaining("noopener"));
@@ -681,11 +682,39 @@ describe("options onboarding", () => {
       });
     });
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(screen.getByRole("alert")).toHaveTextContent("Local model could not finish");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
       "The local check was interrupted",
     );
     await userEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+  });
+
+  it("offers the existing no-access continuation only for a permission denial", async () => {
+    const harness = createHarness();
+    await startRuntimeCheck(harness);
+    act(() => {
+      harness.client.emit({
+        type: "onboarding-failed",
+        error: {
+          code: "PAGE_PERMISSION_DENIED",
+          message: "private browser permission detail",
+          recoverable: true,
+        },
+      });
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Page access was not allowed");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
+      "private browser permission detail",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /continue without automatic access/i }),
+    );
+    expect(harness.client.sent.at(-1)).toMatchObject({
+      type: "run-readiness",
+      preferences: { automaticToolbar: false },
+    });
   });
 
   it("reconnects and safely resumes the active command after worker suspension", async () => {

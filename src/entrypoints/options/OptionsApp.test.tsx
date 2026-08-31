@@ -246,6 +246,84 @@ describe("options onboarding", () => {
     expect(document.body.textContent).not.toMatch(/tokens\/s|first response/i);
   });
 
+  it("keeps diagnostic facts opaque and preserves trusted settings overrides", async () => {
+    const hostile = new Proxy(
+      {
+        extensionVersion: "attacker-version",
+        selectedModel: { name: "attacker-model" },
+        automaticToolbar: true,
+        onboardingVersion: 0,
+      },
+      {
+        ownKeys() {
+          throw new Error("hostile ownKeys trap");
+        },
+      },
+    );
+
+    let copiedReport = "";
+    createHarness({
+      settingsRepository: {
+        async get() {
+          return storedSettings(1);
+        },
+        async update(patch) {
+          return {
+            ...storedSettings(1),
+            preferences: { ...storedSettings(1).preferences, ...patch },
+          };
+        },
+        async markOnboardingComplete() {
+          return storedSettings(1);
+        },
+      },
+      getDiagnosticFacts: () => hostile,
+      copyDiagnosticReport: async (report) => {
+        copiedReport = report;
+      },
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: /copy diagnostics/i }));
+    expect(screen.getByRole("status")).toHaveTextContent(/copied/i);
+    expect(JSON.parse(copiedReport)).toMatchObject({
+      extensionVersion: "attacker-version",
+      model: { name: RECOMMENDED_MODEL },
+      permissions: { automaticToolbar: false },
+      onboardingVersion: 1,
+    });
+  });
+
+  it("falls back when diagnostic facts throw during retrieval", async () => {
+    createHarness({
+      settingsRepository: {
+        async get() {
+          return storedSettings(1);
+        },
+        async update(patch) {
+          return {
+            ...storedSettings(1),
+            preferences: { ...storedSettings(1).preferences, ...patch },
+          };
+        },
+        async markOnboardingComplete() {
+          return storedSettings(1);
+        },
+      },
+      getDiagnosticFacts: () => {
+        throw new Error("private dependency failure");
+      },
+      copyDiagnosticReport: async () => undefined,
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: /copy diagnostics/i })).toBeVisible();
+  });
+
   it("shows checking, missing-runtime recovery, and only the official HTTPS installer", async () => {
     const harness = createHarness();
     await startRuntimeCheck(harness);

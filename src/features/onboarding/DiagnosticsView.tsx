@@ -1,27 +1,49 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createSanitizedDiagnosticReport,
   serializeDiagnosticReport,
-  type DiagnosticFacts,
+  type TrustedDiagnosticOverrides,
 } from "./diagnostics";
 
 export interface DiagnosticsViewProps {
-  facts: DiagnosticFacts;
+  facts: unknown;
+  trustedOverrides?: TrustedDiagnosticOverrides;
   copyReport(report: string): Promise<void>;
 }
 
-export function DiagnosticsView({ facts, copyReport }: DiagnosticsViewProps) {
+export function DiagnosticsView({
+  facts,
+  trustedOverrides,
+  copyReport,
+}: DiagnosticsViewProps) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
-  const report = serializeDiagnosticReport(createSanitizedDiagnosticReport(facts));
+  const mounted = useRef(true);
+  const operationId = useRef(0);
+  const report = serializeDiagnosticReport(
+    createSanitizedDiagnosticReport(facts, trustedOverrides),
+  );
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   function copyDiagnostics(): void {
+    const currentOperation = ++operationId.current;
+    const updateStatus = (nextStatus: "copied" | "failed") => {
+      if (mounted.current && currentOperation === operationId.current) {
+        setStatus(nextStatus);
+      }
+    };
+
     try {
       void copyReport(report).then(
-        () => setStatus("copied"),
-        () => setStatus("failed"),
+        () => updateStatus("copied"),
+        () => updateStatus("failed"),
       );
     } catch {
-      setStatus("failed");
+      updateStatus("failed");
     }
   }
 

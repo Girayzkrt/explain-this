@@ -34,6 +34,29 @@ Test Files  7 passed (7)
 Tests       62 passed (62)
 ```
 
+## Review-fix evidence (2026-09-01)
+
+The two review findings were reproduced test-first: hostile diagnostic facts crashed
+`SettingsStep` during a pre-sanitizer spread, and an older rejected clipboard promise
+overwrote a newer successful result. Added regressions cover throwing fact retrieval,
+`ownKeys`/revoked/getter proxies, trusted override precedence, unmount completion, and
+out-of-order clipboard completion. The fixes keep dependency output opaque until the
+sanitizer's safe own-access boundary, pass trusted settings through a separate typed
+override channel, and gate clipboard feedback on both mount lifetime and the latest
+operation ID. Synchronous clipboard throws and rejected promises retain fixed safe copy.
+
+Focused Task 15 verification after the fix:
+
+```text
+npx vitest run [Task 15 seven-file suite]
+Test Files  7 passed (7)
+Tests       67 passed (67)
+npm run typecheck                 exit 0
+npx eslint <changed Task 15 files> exit 0
+npx prettier --check <changed>    All matched files use Prettier code style!
+git diff --check                  exit 0
+```
+
 ## Design and privacy
 
 - `ERROR_PRESENTATIONS` is an exhaustive `Record<PublicErrorCode, ErrorPresentation>`,

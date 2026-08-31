@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
 import { DiagnosticsView } from "../../features/onboarding/DiagnosticsView";
-import type { DiagnosticFacts } from "../../features/onboarding/diagnostics";
 import type { OriginGuidance } from "../../features/onboarding/origin-guidance";
 import {
   useOnboarding,
@@ -41,7 +40,7 @@ export interface OptionsAppDependencies {
   >;
   getUiLanguage(): string;
   getOriginGuidance(): OriginGuidance;
-  getDiagnosticFacts?(): DiagnosticFacts;
+  getDiagnosticFacts?(): unknown;
   copyDiagnosticReport?(report: string): Promise<void>;
 }
 
@@ -740,6 +739,14 @@ function SettingsStep({
     await controller.updateSettings({ blockedSites: next });
   }
 
+  function readDiagnosticFacts(): unknown {
+    try {
+      return dependencies.getDiagnosticFacts?.() ?? {};
+    } catch {
+      return {};
+    }
+  }
+
   return (
     <StepFrame eyebrow="Settings" heading="Explanation settings">
       <p>
@@ -786,9 +793,9 @@ function SettingsStep({
       </div>
       {dependencies.getDiagnosticFacts && dependencies.copyDiagnosticReport ? (
         <DiagnosticsView
-          facts={{
-            ...dependencies.getDiagnosticFacts(),
-            selectedModel: { name: controller.preferences.selectedModel },
+          facts={readDiagnosticFacts()}
+          trustedOverrides={{
+            selectedModel: controller.preferences.selectedModel,
             automaticToolbar: controller.preferences.automaticToolbar,
             onboardingVersion: 1,
           }}

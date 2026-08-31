@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiagnosticsView } from "./DiagnosticsView";
@@ -53,4 +53,56 @@ describe("DiagnosticsView", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/could not copy diagnostics/i);
     expect(screen.getByRole("alert")).not.toHaveTextContent("implementation secret");
   });
+
+  it("does not update feedback after the view unmounts", async () => {
+    const pending = deferred<void>();
+    const copyReport = vi.fn(() => pending.promise);
+    const view = render(
+      <DiagnosticsView facts={{ extensionVersion: "1.0.0" }} copyReport={copyReport} />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /copy diagnostics/i }));
+    view.unmount();
+    await act(async () => pending.resolve());
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("only shows the result of the latest clipboard operation", async () => {
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const copyReport = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    render(
+      <DiagnosticsView facts={{ extensionVersion: "1.0.0" }} copyReport={copyReport} />,
+    );
+
+    const button = screen.getByRole("button", { name: /copy diagnostics/i });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    await act(async () => {
+      second.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(/copied/i);
+    await act(async () => {
+      first.reject(new Error("older failure"));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/copied/i);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}

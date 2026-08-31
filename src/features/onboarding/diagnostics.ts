@@ -37,6 +37,12 @@ export interface DiagnosticFacts {
   [key: string]: unknown;
 }
 
+export interface TrustedDiagnosticOverrides {
+  selectedModel: string;
+  automaticToolbar: boolean;
+  onboardingVersion: 1;
+}
+
 export interface SanitizedDiagnosticReport {
   extensionVersion: string;
   platform: string;
@@ -121,14 +127,18 @@ function sanitizedMetrics(value: unknown): SanitizedDiagnosticReport["metrics"] 
 }
 
 export function createSanitizedDiagnosticReport(
-  input: DiagnosticFacts,
+  input: unknown,
+  trustedOverrides?: TrustedDiagnosticOverrides,
 ): SanitizedDiagnosticReport {
   const facts = object(input) ?? {};
   const extensionVersion = boundedString(own(facts, "extensionVersion")) ?? "unknown";
   const platform = boundedString(own(facts, "platform")) ?? "unknown";
   const errorCode = own(facts, "errorCode");
-  const onboardingVersion = own(facts, "onboardingVersion");
-  const model = sanitizedModel(own(facts, "selectedModel"));
+  const onboardingVersion =
+    trustedOverrides?.onboardingVersion ?? own(facts, "onboardingVersion");
+  const model = trustedOverrides
+    ? sanitizedModel({ name: trustedOverrides.selectedModel })
+    : sanitizedModel(own(facts, "selectedModel"));
   const metrics = sanitizedMetrics(own(facts, "metrics"));
 
   return {
@@ -141,7 +151,10 @@ export function createSanitizedDiagnosticReport(
       ? { errorCode: errorCode as PublicErrorCode }
       : {}),
     ...(metrics === undefined ? {} : { metrics }),
-    permissions: { automaticToolbar: own(facts, "automaticToolbar") === true },
+    permissions: {
+      automaticToolbar:
+        trustedOverrides?.automaticToolbar ?? own(facts, "automaticToolbar") === true,
+    },
     onboardingVersion: onboardingVersion === 1 ? 1 : 0,
   };
 }

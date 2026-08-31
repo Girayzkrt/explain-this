@@ -156,4 +156,24 @@ describe("sanitized diagnostics", () => {
       onboardingVersion: 0,
     });
   });
+
+  it("ignores values whose allowlisted getter throws", () => {
+    const hostile = new Proxy(
+      { extensionVersion: "private getter detail" },
+      {
+        get(target, key, receiver) {
+          if (key === "extensionVersion") throw new Error("private getter detail");
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    ) as Record<string, unknown>;
+
+    expect(createSanitizedDiagnosticReport(hostile)).toEqual({
+      extensionVersion: "unknown",
+      platform: "unknown",
+      endpoint: { hostname: "127.0.0.1", port: 11434 },
+      permissions: { automaticToolbar: false },
+      onboardingVersion: 0,
+    });
+  });
 });

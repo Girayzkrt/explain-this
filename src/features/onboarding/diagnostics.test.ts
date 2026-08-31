@@ -176,4 +176,14 @@ describe("sanitized diagnostics", () => {
       onboardingVersion: 0,
     });
   });
+
+  it("normalizes malformed trusted toolbar overrides to a boolean", () => {
+    const report = createSanitizedDiagnosticReport({ automaticToolbar: true }, {
+      selectedModel: "qwen3:4b",
+      automaticToolbar: "yes",
+      onboardingVersion: 1,
+    } as unknown as Parameters<typeof createSanitizedDiagnosticReport>[1]);
+
+    expect(report.permissions).toEqual({ automaticToolbar: false });
+  });
 });

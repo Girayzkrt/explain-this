@@ -45,6 +45,10 @@ sanitizer's safe own-access boundary, pass trusted settings through a separate t
 override channel, and gate clipboard feedback on both mount lifetime and the latest
 operation ID. Synchronous clipboard throws and rejected promises retain fixed safe copy.
 
+The controller's final minor-hardening pass also normalizes malformed runtime toolbar
+overrides to an actual boolean and restores the mounted guard during React StrictMode
+effect replay. Two focused regressions cover these contracts.
+
 Focused Task 15 verification after the fix:
 
 ```text

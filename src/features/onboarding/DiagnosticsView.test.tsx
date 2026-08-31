@@ -1,5 +1,6 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiagnosticsView } from "./DiagnosticsView";
 
@@ -94,6 +95,21 @@ describe("DiagnosticsView", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent(/copied/i);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps clipboard feedback active after StrictMode effect replay", async () => {
+    render(
+      <StrictMode>
+        <DiagnosticsView
+          facts={{ extensionVersion: "1.0.0" }}
+          copyReport={vi.fn().mockResolvedValue(undefined)}
+        />
+      </StrictMode>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /copy diagnostics/i }));
+
+    expect(screen.getByRole("status")).toHaveTextContent(/copied/i);
   });
 });
 

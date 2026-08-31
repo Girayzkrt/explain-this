@@ -24,6 +24,7 @@ export function DiagnosticsView({
   );
 
   useEffect(() => {
+    mounted.current = true;
     return () => {
       mounted.current = false;
     };

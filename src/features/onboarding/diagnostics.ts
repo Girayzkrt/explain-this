@@ -152,8 +152,9 @@ export function createSanitizedDiagnosticReport(
       : {}),
     ...(metrics === undefined ? {} : { metrics }),
     permissions: {
-      automaticToolbar:
-        trustedOverrides?.automaticToolbar ?? own(facts, "automaticToolbar") === true,
+      automaticToolbar: trustedOverrides
+        ? trustedOverrides.automaticToolbar === true
+        : own(facts, "automaticToolbar") === true,
     },
     onboardingVersion: onboardingVersion === 1 ? 1 : 0,
   };

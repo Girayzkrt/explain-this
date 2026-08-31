@@ -21,6 +21,17 @@ interface ReaderAnswerState extends ReaderSurfaceState {
   answer: string;
 }
 
+interface ReaderPreflightFailureState {
+  status: "failed";
+  preview: string;
+  action: ReadingAction;
+  contextIncluded: false;
+  anchor: SelectionSnapshot;
+  answer: "";
+  error: PublicErrorShape;
+  retryWithoutContext: true;
+}
+
 export type ReaderUiState =
   | { status: "idle" }
   | {
@@ -32,7 +43,8 @@ export type ReaderUiState =
   | ({ status: "generating" } & ReaderAnswerState)
   | ({ status: "complete" } & ReaderAnswerState)
   | ({ status: "cancelled" } & ReaderAnswerState)
-  | ({ status: "failed"; error: PublicErrorShape } & ReaderAnswerState);
+  | ({ status: "failed"; error: PublicErrorShape } & ReaderAnswerState)
+  | ReaderPreflightFailureState;
 
 export interface ReaderConnection {
   send(message: ReaderPortMessage): void;
@@ -78,11 +90,12 @@ function answerOf(state: ReaderUiState): string {
 
 function surfaceOf(state: ReaderUiState): ReaderSurfaceState | undefined {
   if (
-    state.status === "connecting" ||
-    state.status === "generating" ||
-    state.status === "complete" ||
-    state.status === "cancelled" ||
-    state.status === "failed"
+    "requestId" in state &&
+    (state.status === "connecting" ||
+      state.status === "generating" ||
+      state.status === "complete" ||
+      state.status === "cancelled" ||
+      state.status === "failed")
   ) {
     return {
       requestId: state.requestId,
@@ -128,12 +141,14 @@ export class ReaderController {
   }
 
   async handleInvocation(command: ReaderInvocationCommand): Promise<void> {
+    const epoch = ++this.selectionEpoch;
     const selection = this.dependencies.captureSelection();
     if (!selection) {
       this.close(false);
       return;
     }
     const config = await this.dependencies.getReaderConfig();
+    if (epoch !== this.selectionEpoch) return;
     if (config.blocked) {
       this.close(false);
       return;
@@ -163,12 +178,12 @@ export class ReaderController {
     } catch (error) {
       this.setState({
         status: "failed",
-        requestId: "",
         preview: selection.text,
         action,
         contextIncluded: false,
         anchor: selection,
         answer: "",
+        retryWithoutContext: true,
         error: {
           code: "CONTEXT_TOO_LARGE",
           message:
@@ -179,6 +194,14 @@ export class ReaderController {
       return;
     }
 
+    this.startRequest(action, selection, context);
+  }
+
+  private startRequest(
+    action: ReadingAction,
+    selection: SelectionSnapshot,
+    context: NearbyContext,
+  ): void {
     this.cancelActive();
     const requestId = this.dependencies.createRequestId();
     const surface: ReaderSurfaceState = {
@@ -216,6 +239,14 @@ export class ReaderController {
 
   retry(): boolean {
     if (this.state.status !== "failed" || !this.state.error.recoverable) return false;
+    if ("retryWithoutContext" in this.state) {
+      this.startRequest(this.state.action, this.state.anchor, {
+        text: "",
+        estimatedTokens: 0,
+        sourceBlockCount: 0,
+      });
+      return true;
+    }
     const surface = surfaceOf(this.state);
     if (!surface || !surface.requestId) return false;
     let active = this.active;
@@ -408,7 +439,12 @@ export class ReaderController {
   }
 
   private flushDeltas(active: ActiveRequest): void {
-    if (this.active !== active || active.deltaBuffer.length === 0) return;
+    if (this.active !== active) return;
+    if (active.frameId !== undefined) {
+      this.dependencies.cancelFrame(active.frameId);
+      active.frameId = undefined;
+    }
+    if (active.deltaBuffer.length === 0) return;
     const surface = surfaceOf(this.state);
     if (!surface) return;
     const answer = `${answerOf(this.state)}${active.deltaBuffer}`;

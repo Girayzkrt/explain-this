@@ -3,6 +3,7 @@ import type { SelectionSnapshot } from "../../core/privacy/selection";
 import type { ReaderPortMessage } from "../../platform/messaging/contracts";
 import type { BackgroundPortMessage } from "../../platform/messaging/contracts";
 import type { ReaderInvocationCommand } from "../../platform/messaging/reader-command";
+import type { ReaderRuntimeConfig } from "../../platform/messaging/reader-runtime";
 import {
   ReaderController,
   type ReaderConnection,
@@ -21,6 +22,14 @@ function snapshot(text = "A difficult selected sentence."): SelectionSnapshot {
     rect: new DOMRect(80, 100, 180, 24),
     anchorElement,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }
 
 class FakeConnection implements ReaderConnection {
@@ -63,10 +72,16 @@ function createHarness(
     capture?: SelectionSnapshot;
     blocked?: boolean;
     includeNearbyContext?: boolean;
+    getReaderConfig?: () => Promise<ReaderRuntimeConfig>;
+    extractNearbyContext?: (
+      snapshot: SelectionSnapshot,
+      enabled: boolean,
+    ) => { text: string; estimatedTokens: number; sourceBlockCount: number };
   } = {},
 ) {
   const connections: FakeConnection[] = [];
   const frames: FrameRequestCallback[] = [];
+  const cancelFrame = vi.fn();
   const restored: SelectionSnapshot[] = [];
   const copied: string[] = [];
   const handoffs: number[] = [];
@@ -74,13 +89,18 @@ function createHarness(
   let currentSelection = options.capture;
   const dependencies: ReaderControllerDependencies = {
     captureSelection: () => currentSelection,
-    getReaderConfig: async () => ({
-      automaticToolbar: true,
-      blocked: options.blocked ?? false,
-      includeNearbyContext: options.includeNearbyContext ?? false,
-    }),
-    extractNearbyContext(_value, enabled) {
+    getReaderConfig:
+      options.getReaderConfig ??
+      (async () => ({
+        automaticToolbar: true,
+        blocked: options.blocked ?? false,
+        includeNearbyContext: options.includeNearbyContext ?? false,
+      })),
+    extractNearbyContext(value, enabled) {
       extracted.push(enabled);
+      if (options.extractNearbyContext) {
+        return options.extractNearbyContext(value, enabled);
+      }
       return {
         text: enabled ? "Nearby paragraph." : "",
         estimatedTokens: enabled ? 4 : 0,
@@ -97,7 +117,7 @@ function createHarness(
       frames.push(callback);
       return frames.length;
     },
-    cancelFrame: vi.fn(),
+    cancelFrame,
     restoreFocus(value) {
       restored.push(value);
     },
@@ -113,6 +133,7 @@ function createHarness(
     controller,
     connections,
     frames,
+    cancelFrame,
     restored,
     copied,
     handoffs,
@@ -216,6 +237,44 @@ describe("reader controller", () => {
     });
   });
 
+  it("retries a context preflight failure with the same selection and no nearby context", async () => {
+    const selected = snapshot();
+    let extractionAttempts = 0;
+    const harness = createHarness({
+      capture: selected,
+      includeNearbyContext: true,
+      extractNearbyContext(_value, enabled) {
+        extractionAttempts += 1;
+        if (extractionAttempts === 1) throw new Error("Context is too large.");
+        return {
+          text: enabled ? "This must not be sent on retry." : "",
+          estimatedTokens: 0,
+          sourceBlockCount: 0,
+        };
+      },
+    });
+    await harness.controller.selectionCompleted();
+
+    harness.controller.startAction("explain");
+
+    expect(harness.controller.getState()).toMatchObject({
+      status: "failed",
+      error: { code: "CONTEXT_TOO_LARGE", recoverable: true },
+    });
+    expect(harness.controller.retry()).toBe(true);
+    expect(harness.connections[0]?.sent).toEqual([
+      {
+        type: "start-request",
+        request: {
+          requestId: REQUEST_ID,
+          action: "explain",
+          selection: selected.text,
+        },
+      },
+    ]);
+    expect(harness.extracted).toEqual([true]);
+  });
+
   it("sends Stop once and cancels before a replacement selection", async () => {
     const first = snapshot("First selection");
     const harness = createHarness({ capture: first });
@@ -272,6 +331,32 @@ describe("reader controller", () => {
       status: "generating",
       answer: "One frame",
     });
+  });
+
+  it("cancels a scheduled animation frame when a terminal event flushes deltas", async () => {
+    const harness = createHarness({ capture: snapshot() });
+    await harness.controller.selectionCompleted();
+    harness.controller.startAction("explain");
+    const port = harness.connections[0];
+    port?.emit({
+      type: "stream-event",
+      event: { type: "started", requestId: REQUEST_ID },
+    });
+    port?.emit({
+      type: "stream-event",
+      event: { type: "delta", requestId: REQUEST_ID, sequence: 0, text: "Final" },
+    });
+
+    port?.emit({
+      type: "stream-event",
+      event: { type: "completed", requestId: REQUEST_ID },
+    });
+
+    expect(harness.controller.getState()).toMatchObject({
+      status: "complete",
+      answer: "Final",
+    });
+    expect(harness.cancelFrame).toHaveBeenCalledWith(1);
   });
 
   it("rejects stale, duplicate, and out-of-order stream events", async () => {
@@ -380,5 +465,88 @@ describe("reader controller", () => {
     await harness.controller.openSidePanel();
     expect(harness.copied).toEqual(["Vertaling"]);
     expect(harness.handoffs).toEqual([1]);
+  });
+
+  it("lets the newest explicit invocation own state when an earlier config response arrives late", async () => {
+    const firstConfig = deferred<ReaderRuntimeConfig>();
+    const secondConfig = deferred<ReaderRuntimeConfig>();
+    const configs = [firstConfig, secondConfig];
+    let configIndex = 0;
+    const harness = createHarness({
+      capture: snapshot("Current page selection"),
+      getReaderConfig: () => configs[configIndex++]!.promise,
+    });
+    const first = harness.controller.handleInvocation({
+      type: "selection-action",
+      action: "explain",
+      selectionText: "First explicit selection",
+    });
+    const second = harness.controller.handleInvocation({
+      type: "selection-action",
+      action: "translate",
+      selectionText: "Second explicit selection",
+    });
+
+    secondConfig.resolve({
+      automaticToolbar: true,
+      includeNearbyContext: false,
+      blocked: false,
+    });
+    await second;
+    firstConfig.resolve({
+      automaticToolbar: true,
+      includeNearbyContext: false,
+      blocked: false,
+    });
+    await first;
+
+    expect(harness.connections).toHaveLength(1);
+    expect(harness.connections[0]?.sent[0]).toMatchObject({
+      request: { action: "translate", selection: "Second explicit selection" },
+    });
+    expect(harness.controller.getState()).toMatchObject({
+      status: "connecting",
+      action: "translate",
+      preview: "Second explicit selection",
+    });
+  });
+
+  it("lets a newer automatic selection suppress a late explicit invocation", async () => {
+    const explicitConfig = deferred<ReaderRuntimeConfig>();
+    const automaticConfig = deferred<ReaderRuntimeConfig>();
+    const configs = [explicitConfig, automaticConfig];
+    let configIndex = 0;
+    const explicitSelection = snapshot("Explicit page selection");
+    const automaticSelection = snapshot("New automatic selection");
+    const harness = createHarness({
+      capture: explicitSelection,
+      getReaderConfig: () => configs[configIndex++]!.promise,
+    });
+    const explicit = harness.controller.handleInvocation({
+      type: "selection-action",
+      action: "explain",
+      selectionText: "Explicit action text",
+    });
+    harness.setSelection(automaticSelection);
+    const automatic = harness.controller.selectionCompleted();
+
+    automaticConfig.resolve({
+      automaticToolbar: true,
+      includeNearbyContext: false,
+      blocked: false,
+    });
+    await automatic;
+    explicitConfig.resolve({
+      automaticToolbar: true,
+      includeNearbyContext: false,
+      blocked: false,
+    });
+    await explicit;
+
+    expect(harness.connections).toHaveLength(0);
+    expect(harness.controller.getState()).toMatchObject({
+      status: "actions",
+      selection: automaticSelection,
+    });
   });
 });

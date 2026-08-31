@@ -1,9 +1,5 @@
 import { createRoot } from "react-dom/client";
 import { browser } from "wxt/browser";
-import type {
-  BackgroundPortMessage,
-  ReaderPortMessage,
-} from "../../platform/messaging/contracts";
 import {
   parseReaderInvocationCommand,
   type ReaderInvocationCommand,
@@ -17,28 +13,11 @@ import {
 } from "../../features/reader/reader-controller";
 import { READER_PORT_NAME } from "../../features/reader/background-events";
 import { ReaderRoot } from "./ReaderRoot";
+import { createReaderConnection } from "./reader-connection";
 import "./reader.css";
 
 function connectReader(): ReaderConnection {
-  const port = browser.runtime.connect({ name: READER_PORT_NAME });
-  return {
-    send(message: ReaderPortMessage) {
-      port.postMessage(message);
-    },
-    subscribe(listener) {
-      const wrapped = (message: unknown): void =>
-        listener(message as BackgroundPortMessage);
-      port.onMessage.addListener(wrapped);
-      return () => port.onMessage.removeListener(wrapped);
-    },
-    subscribeDisconnect(listener) {
-      port.onDisconnect.addListener(listener);
-      return () => port.onDisconnect.removeListener(listener);
-    },
-    disconnect() {
-      port.disconnect();
-    },
-  };
+  return createReaderConnection(browser.runtime.connect({ name: READER_PORT_NAME }));
 }
 
 function restoreReadingFocus(snapshot: SelectionSnapshot): void {

@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { PublicError } from "../../core/requests/public-error";
 import type { FollowUpIntent, ReadingAction } from "../../core/requests/types";
-import type { ReaderSession } from "../../features/reader/session";
+import {
+  MAX_DISPLAY_ANSWER_CHARACTERS,
+  MAX_SELECTION_PREVIEW_CHARACTERS,
+  type ReaderSession,
+} from "../../features/reader/session";
 import type { PublicErrorShape, StreamEvent } from "../../providers/provider";
 
 export interface ReaderStartRequest {
@@ -25,6 +29,79 @@ export type BackgroundPortMessage =
 
 const RequestIdSchema = z.uuid();
 const TransportTextSchema = z.string().min(1).max(32_000);
+const PublicErrorSchema = z
+  .object({
+    code: z.enum([
+      "OLLAMA_UNREACHABLE",
+      "OLLAMA_ORIGIN_BLOCKED",
+      "NO_MODEL",
+      "MODEL_NOT_FOUND",
+      "MODEL_DOWNLOAD_FAILED",
+      "CONNECTION_TIMEOUT",
+      "FIRST_TOKEN_TIMEOUT",
+      "STREAM_IDLE_TIMEOUT",
+      "MALFORMED_STREAM",
+      "UNSUPPORTED_PAGE",
+      "PAGE_PERMISSION_DENIED",
+      "EMPTY_SELECTION",
+      "SELECTION_TOO_LARGE",
+      "CONTEXT_TOO_LARGE",
+      "REQUEST_CANCELLED",
+      "PROVIDER_ERROR",
+      "INVALID_REQUEST",
+      "INVALID_ENDPOINT",
+    ]),
+    message: TransportTextSchema,
+    recoverable: z.boolean(),
+  })
+  .strict();
+const StreamMetricsSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative().optional(),
+    outputTokens: z.number().int().nonnegative().optional(),
+    durationMs: z.number().finite().nonnegative().optional(),
+  })
+  .strict();
+const StreamEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("started"), requestId: RequestIdSchema }).strict(),
+  z
+    .object({
+      type: z.literal("delta"),
+      requestId: RequestIdSchema,
+      sequence: z.number().int().nonnegative(),
+      text: TransportTextSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("completed"),
+      requestId: RequestIdSchema,
+      metrics: StreamMetricsSchema.optional(),
+    })
+    .strict(),
+  z.object({ type: z.literal("cancelled"), requestId: RequestIdSchema }).strict(),
+  z
+    .object({
+      type: z.literal("failed"),
+      requestId: RequestIdSchema,
+      error: PublicErrorSchema,
+    })
+    .strict(),
+]);
+const ReaderSessionSchema = z
+  .object({
+    tabId: z.number().int().nonnegative(),
+    requestId: RequestIdSchema,
+    selectionPreview: z.string().min(1).max(MAX_SELECTION_PREVIEW_CHARACTERS),
+    action: z.enum(["explain", "simplify", "translate", "example"]),
+    contextIncluded: z.boolean(),
+    status: z.enum(["pending", "streaming", "completed", "cancelled", "failed"]),
+    answer: z.string().max(MAX_DISPLAY_ANSWER_CHARACTERS),
+    lastSequence: z.number().int().min(-1),
+    error: PublicErrorSchema.optional(),
+    origin: z.url(),
+  })
+  .strict();
 const ReaderStartRequestSchema = z
   .object({
     requestId: RequestIdSchema,
@@ -53,6 +130,14 @@ const ReaderCommandSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+const BackgroundPortMessageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("stream-event"), event: StreamEventSchema }).strict(),
+  z
+    .object({ type: z.literal("session-snapshot"), session: ReaderSessionSchema })
+    .strict(),
+  z.object({ type: z.literal("command-failed"), error: PublicErrorSchema }).strict(),
+]);
+
 export type ReaderCommandMessage = Exclude<
   ReaderPortMessage,
   { type: "open-side-panel" }
@@ -65,4 +150,12 @@ export function parseReaderPortMessage(input: unknown): ReaderCommandMessage {
   }
 
   return result.data as ReaderCommandMessage;
+}
+
+/** Ignore malformed worker messages before they reach the injected reader UI. */
+export function parseBackgroundPortMessage(
+  input: unknown,
+): BackgroundPortMessage | undefined {
+  const result = BackgroundPortMessageSchema.safeParse(input);
+  return result.success ? (result.data as BackgroundPortMessage) : undefined;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES } from "../../features/settings/settings";
-import { parseReaderPortMessage } from "./contracts";
+import { parseBackgroundPortMessage, parseReaderPortMessage } from "./contracts";
 
 const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -77,5 +77,68 @@ describe("reader port message contract", () => {
         request: { ...startRequest().request, selection: "x".repeat(32_001) },
       }),
     ).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
+  });
+
+  it.each([
+    {
+      type: "stream-event",
+      event: { type: "started", requestId: REQUEST_ID },
+    },
+    {
+      type: "session-snapshot",
+      session: {
+        tabId: 7,
+        requestId: REQUEST_ID,
+        selectionPreview: "A bounded selection.",
+        action: "explain",
+        contextIncluded: false,
+        status: "completed",
+        answer: "A bounded answer.",
+        lastSequence: 0,
+        origin: "https://reader.example",
+      },
+    },
+    {
+      type: "command-failed",
+      error: {
+        code: "PROVIDER_ERROR",
+        message: "The local model failed.",
+        recoverable: true,
+      },
+    },
+  ])("accepts each bounded background port message %#", (message) => {
+    expect(parseBackgroundPortMessage(message)).toEqual(message);
+  });
+
+  it.each([
+    {
+      type: "stream-event",
+      event: { type: "delta", requestId: REQUEST_ID, sequence: -1, text: "x" },
+    },
+    {
+      type: "session-snapshot",
+      session: {
+        tabId: 7,
+        requestId: REQUEST_ID,
+        selectionPreview: "A bounded selection.",
+        action: "explain",
+        contextIncluded: false,
+        status: "completed",
+        answer: "x".repeat(16_001),
+        lastSequence: 0,
+        origin: "https://reader.example",
+      },
+    },
+    {
+      type: "command-failed",
+      error: { code: "NOT_A_PUBLIC_ERROR", message: "Nope", recoverable: true },
+    },
+    {
+      type: "stream-event",
+      event: { type: "started", requestId: REQUEST_ID },
+      extra: true,
+    },
+  ])("rejects malformed background port input %#", (message) => {
+    expect(parseBackgroundPortMessage(message)).toBeUndefined();
   });
 });

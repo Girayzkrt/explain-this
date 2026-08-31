@@ -12,6 +12,7 @@ export const SIDE_PANEL_PORT_NAME = "explain-this-side-panel";
 
 const MENU_PARENT_ID = "explain-this";
 const EXPLAIN_COMMAND = "explain-selection";
+const MAX_QUEUED_SIDE_PANEL_COMMANDS = 16;
 const readerActions = ["explain", "simplify", "translate", "example"] as const;
 
 export interface RuntimeInstalledDetails {
@@ -242,7 +243,10 @@ export function createBackgroundHandlers(
         let disconnected = false;
         const queueStrictCommand = (input: unknown): void => {
           try {
-            queued.push(parseReaderPortMessage(input));
+            const command = parseReaderPortMessage(input);
+            if (queued.length < MAX_QUEUED_SIDE_PANEL_COMMANDS) {
+              queued.push(command);
+            }
           } catch {
             // The coordinator also closes over this strict parser after tab binding.
           }
@@ -251,6 +255,10 @@ export function createBackgroundHandlers(
           disconnected = true;
           queued.splice(0);
         };
+        const failBinding = (): void => {
+          queued.splice(0);
+          if (!disconnected) port.disconnect();
+        };
         port.onMessage.addListener(queueStrictCommand);
         port.onDisconnect.addListener(markDisconnected);
 
@@ -258,13 +266,17 @@ export function createBackgroundHandlers(
         try {
           [tab] = await dependencies.tabs.queryActive();
         } catch {
-          queued.splice(0);
+          failBinding();
           return;
         } finally {
           port.onMessage.removeListener(queueStrictCommand);
           port.onDisconnect.removeListener(markDisconnected);
         }
-        if (disconnected || !trustedTab(tab)) return;
+        if (disconnected) return;
+        if (!trustedTab(tab)) {
+          failBinding();
+          return;
+        }
 
         const boundPort = bindQueuedCommands(port, queued);
         dependencies.coordinator.handleSidePanel(boundPort, {
@@ -272,6 +284,11 @@ export function createBackgroundHandlers(
           url: tab.url,
           tab: { id: tab.id, url: tab.url },
         });
+        return;
+      }
+
+      if (port.name === SIDE_PANEL_PORT_NAME) {
+        port.disconnect();
         return;
       }
 

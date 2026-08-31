@@ -14,6 +14,12 @@ const EXPIRED_SOURCE_ERROR: PublicErrorShape = {
   recoverable: false,
 };
 
+const ACTION_TRANSPORT_ERROR: PublicErrorShape = {
+  code: "PROVIDER_ERROR",
+  message: "The side panel connection was interrupted. Try the action again.",
+  recoverable: true,
+};
+
 export type SidePanelState =
   | { status: "loading" }
   | { status: "empty" }
@@ -56,6 +62,7 @@ class CurrentTabSidePanelController implements SidePanelController {
   private activeTabId: number | undefined;
   private activePort: ActivePort | undefined;
   private refreshEpoch = 0;
+  private displayedSessionEpoch = 0;
   private loaded = false;
   private disposed = false;
 
@@ -74,14 +81,15 @@ class CurrentTabSidePanelController implements SidePanelController {
       this.loaded = true;
       this.unsubscribeSessionChanges = this.dependencies.subscribeToSessionChanges(
         () => {
-          void this.refresh(false);
+          void this.refresh();
         },
       );
       this.unsubscribeTabChanges = this.dependencies.subscribeToActiveTabChanges(() => {
-        void this.refresh(true);
+        this.beginActiveTabTransition();
+        void this.refresh();
       });
     }
-    await this.refresh(true);
+    await this.refresh();
   }
 
   stop(): void {
@@ -89,7 +97,7 @@ class CurrentTabSidePanelController implements SidePanelController {
     if (!session || (session.status !== "pending" && session.status !== "streaming")) {
       return;
     }
-    this.send({ type: "cancel-request", requestId: session.requestId });
+    this.send(session, { type: "cancel-request", requestId: session.requestId });
   }
 
   retry(): void {
@@ -97,13 +105,13 @@ class CurrentTabSidePanelController implements SidePanelController {
     if (!session || (session.status !== "cancelled" && session.status !== "failed")) {
       return;
     }
-    this.send({ type: "retry-request", requestId: session.requestId });
+    this.send(session, { type: "retry-request", requestId: session.requestId });
   }
 
   followUp(intent: FollowUpIntent): void {
     const session = this.currentSession();
     if (!session || session.status !== "completed") return;
-    this.send({ type: "follow-up", requestId: session.requestId, intent });
+    this.send(session, { type: "follow-up", requestId: session.requestId, intent });
   }
 
   dispose(): void {
@@ -122,7 +130,15 @@ class CurrentTabSidePanelController implements SidePanelController {
     return this.state.status === "session" ? this.state.session : undefined;
   }
 
-  private async refresh(tabMayHaveChanged: boolean): Promise<void> {
+  private beginActiveTabTransition(): void {
+    this.refreshEpoch += 1;
+    this.displayedSessionEpoch = 0;
+    this.activeTabId = undefined;
+    this.disconnectPort();
+    this.setState({ status: "loading" });
+  }
+
+  private async refresh(): Promise<void> {
     const epoch = ++this.refreshEpoch;
     let tabId: number | undefined;
     try {
@@ -131,6 +147,7 @@ class CurrentTabSidePanelController implements SidePanelController {
       if (!this.disposed && epoch === this.refreshEpoch) {
         this.disconnectPort();
         this.activeTabId = undefined;
+        this.displayedSessionEpoch = 0;
         this.setState({ status: "empty" });
       }
       return;
@@ -139,11 +156,12 @@ class CurrentTabSidePanelController implements SidePanelController {
 
     const validTabId =
       Number.isInteger(tabId) && (tabId ?? -1) >= 0 ? tabId : undefined;
-    if (tabMayHaveChanged && validTabId !== this.activeTabId) {
+    if (validTabId !== this.activeTabId) {
       this.disconnectPort();
     }
     this.activeTabId = validTabId;
     if (validTabId === undefined) {
+      this.displayedSessionEpoch = 0;
       this.setState({ status: "empty" });
       return;
     }
@@ -153,25 +171,53 @@ class CurrentTabSidePanelController implements SidePanelController {
       session = await this.dependencies.getReaderSession(validTabId);
     } catch {
       if (!this.disposed && epoch === this.refreshEpoch) {
+        this.displayedSessionEpoch = 0;
         this.setState({ status: "empty" });
       }
       return;
     }
     if (this.disposed || epoch !== this.refreshEpoch) return;
+    this.displayedSessionEpoch = session ? epoch : 0;
     this.setState(session ? { status: "session", session } : { status: "empty" });
   }
 
-  private send(message: ReaderPortMessage): void {
+  private send(session: ReaderSession, message: ReaderPortMessage): void {
     const tabId = this.activeTabId;
-    if (tabId === undefined || this.disposed) return;
+    if (
+      tabId === undefined ||
+      this.disposed ||
+      session.tabId !== tabId ||
+      this.displayedSessionEpoch !== this.refreshEpoch
+    ) {
+      return;
+    }
     const port = this.ensurePort(tabId);
     try {
       port.postMessage(message);
+      this.clearActionError();
     } catch {
-      this.releasePort(port);
-      const replacement = this.ensurePort(tabId);
-      replacement.postMessage(message);
+      this.disconnectPort();
+      try {
+        const replacement = this.ensurePort(tabId);
+        replacement.postMessage(message);
+        this.clearActionError();
+      } catch {
+        this.disconnectPort();
+        this.setActionError(ACTION_TRANSPORT_ERROR);
+      }
     }
+  }
+
+  private clearActionError(): void {
+    const session = this.currentSession();
+    if (session && this.state.status === "session" && this.state.actionError) {
+      this.setState({ status: "session", session });
+    }
+  }
+
+  private setActionError(actionError: PublicErrorShape): void {
+    const session = this.currentSession();
+    if (session) this.setState({ status: "session", session, actionError });
   }
 
   private ensurePort(tabId: number): PortLike<ReaderPortMessage> {

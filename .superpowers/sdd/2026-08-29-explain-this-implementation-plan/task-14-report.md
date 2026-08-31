@@ -91,3 +91,34 @@ narrow loopback `host_permissions` with broad HTTP(S) access only under
   is unavailable.
 - The focused suite intentionally avoids the repository-wide suite, per the task
   boundary. The controller owns that broader verification once all task branches land.
+
+## Fix round 1: lifecycle hardening
+
+### Decisions
+
+- An active-tab notification now synchronously invalidates the displayed session and
+  disconnects its port before asynchronous tab lookup starts. Every refresh also
+  records an epoch, so an action based on a session still being refreshed cannot bind
+  or send against a later tab.
+- The background retains the first 16 strict commands received while active-tab
+  binding is pending and drops later valid commands deterministically. Failed,
+  unsupported, and untrusted side-panel binds clear temporary listeners/queue and
+  disconnect the still-live port; a previously disconnected port remains a no-op.
+- A failed send disconnects the failed port before one retry. If that retry fails, all
+  transport state is released and the panel receives a fixed recoverable error without
+  raw transport details. Successful delivery or a session update clears action error.
+- Coordinator ownership remains unchanged: a short-lived side-panel port that did not
+  start the generation cannot abort the content-owned generation; the panel remains
+  authorized to stop the same-origin, same-tab request.
+
+### RED/GREEN evidence
+
+Each regression was first observed failing in its smallest focused suite, then passed
+after its minimal fix. The consolidated run completed with 49 tests across controller,
+background binding, and coordinator ownership:
+
+```text
+npm test -- src/features/reader/sidepanel-controller.test.ts src/features/reader/background-events.test.ts src/features/reader/request-coordinator.test.ts
+Test Files  3 passed (3)
+Tests       49 passed (49)
+```

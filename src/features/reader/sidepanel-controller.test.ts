@@ -30,8 +30,10 @@ class TestPort implements PortLike<ReaderPortMessage> {
   readonly onMessage = new TestListeners<(message: unknown) => void>();
   readonly onDisconnect = new TestListeners<() => void>();
   disconnected = false;
+  postError: Error | undefined;
 
   postMessage(message: ReaderPortMessage): void {
+    if (this.postError) throw this.postError;
     this.sent.push(structuredClone(message));
   }
 
@@ -99,6 +101,9 @@ function createHarness(initialTabId: number | undefined = 7) {
     ports,
     sessionReads,
     sessions,
+    setActiveTabId(tabId: number | undefined) {
+      activeTabId = tabId;
+    },
     async activate(tabId: number | undefined) {
       activeTabId = tabId;
       for (const listener of [...tabListeners]) listener();
@@ -169,6 +174,158 @@ describe("side-panel controller", () => {
       session: { status: "completed", answer: "Part complete." },
     });
     expect(harness.sessionReads).toEqual([7, 7]);
+  });
+
+  it("disconnects an existing port when a session refresh resolves a different tab", async () => {
+    const harness = createHarness(7);
+    harness.sessions.set(7, session(7));
+    harness.sessions.set(8, session(8));
+    await harness.controller.load();
+    harness.controller.followUp("why");
+
+    harness.setActiveTabId(8);
+    await harness.changeSession(8, session(8, { answer: "Updated." }));
+
+    expect(harness.ports[0]?.disconnected).toBe(true);
+    expect(harness.controller.getSnapshot()).toMatchObject({
+      status: "session",
+      session: { tabId: 8, answer: "Updated." },
+    });
+  });
+
+  it("invalidates displayed actions before an active-tab refresh resolves", async () => {
+    const tabListeners = new Set<() => void>();
+    const port = new TestPort();
+    let resolveActiveTab: ((tabId: number | undefined) => void) | undefined;
+    let activeTabCalls = 0;
+    const controller = createSidePanelController({
+      async getActiveTabId() {
+        activeTabCalls += 1;
+        if (activeTabCalls === 1) return 7;
+        return new Promise((resolve) => {
+          resolveActiveTab = resolve;
+        });
+      },
+      async getReaderSession(tabId) {
+        return tabId === 7 ? session(7) : session(8);
+      },
+      subscribeToSessionChanges() {
+        return () => undefined;
+      },
+      subscribeToActiveTabChanges(listener) {
+        tabListeners.add(listener);
+        return () => tabListeners.delete(listener);
+      },
+      connectReaderPort() {
+        return port;
+      },
+    });
+    await controller.load();
+    controller.followUp("why");
+
+    for (const listener of tabListeners) listener();
+    controller.followUp("why");
+
+    expect(port.disconnected).toBe(true);
+    expect(port.sent).toEqual([
+      { type: "follow-up", requestId: REQUEST_ID, intent: "why" },
+    ]);
+    resolveActiveTab?.(8);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it("disconnects a failed port before delivering the action through a replacement", async () => {
+    const firstPort = new TestPort();
+    firstPort.postError = new Error("first post failed");
+    const replacementPort = new TestPort();
+    let connections = 0;
+    const controller = createSidePanelController({
+      async getActiveTabId() {
+        return 7;
+      },
+      async getReaderSession() {
+        return session(7);
+      },
+      subscribeToSessionChanges() {
+        return () => undefined;
+      },
+      subscribeToActiveTabChanges() {
+        return () => undefined;
+      },
+      connectReaderPort() {
+        connections += 1;
+        return connections === 1 ? firstPort : replacementPort;
+      },
+    });
+    await controller.load();
+
+    controller.followUp("why");
+
+    expect(firstPort.disconnected).toBe(true);
+    expect(replacementPort.sent).toEqual([
+      { type: "follow-up", requestId: REQUEST_ID, intent: "why" },
+    ]);
+    expect(controller.getSnapshot()).toEqual({
+      status: "session",
+      session: session(7),
+    });
+  });
+
+  it("shows a fixed recoverable action error when replacement delivery also fails", async () => {
+    const firstPort = new TestPort();
+    firstPort.postError = new Error("first transport detail");
+    const replacementPort = new TestPort();
+    replacementPort.postError = new Error("second transport detail");
+    const recoveredPort = new TestPort();
+    let connections = 0;
+    const controller = createSidePanelController({
+      async getActiveTabId() {
+        return 7;
+      },
+      async getReaderSession() {
+        return session(7);
+      },
+      subscribeToSessionChanges() {
+        return () => undefined;
+      },
+      subscribeToActiveTabChanges() {
+        return () => undefined;
+      },
+      connectReaderPort() {
+        connections += 1;
+        return connections === 1
+          ? firstPort
+          : connections === 2
+            ? replacementPort
+            : recoveredPort;
+      },
+    });
+    await controller.load();
+
+    expect(() => controller.followUp("why")).not.toThrow();
+
+    expect(firstPort.disconnected).toBe(true);
+    expect(replacementPort.disconnected).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "session",
+      actionError: {
+        code: "PROVIDER_ERROR",
+        message: "The side panel connection was interrupted. Try the action again.",
+        recoverable: true,
+      },
+    });
+    expect(JSON.stringify(controller.getSnapshot())).not.toContain("transport detail");
+
+    controller.followUp("why");
+
+    expect(recoveredPort.sent).toEqual([
+      { type: "follow-up", requestId: REQUEST_ID, intent: "why" },
+    ]);
+    expect(controller.getSnapshot()).toEqual({
+      status: "session",
+      session: session(7),
+    });
   });
 
   it("falls back to instructions when active-tab resolution is temporarily unavailable", async () => {

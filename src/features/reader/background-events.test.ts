@@ -469,6 +469,7 @@ describe("background reader events", () => {
     });
 
     expect(harness.coordinatedPorts).toEqual([]);
+    expect(port.disconnected).toBe(true);
   });
 
   it("drops queued side-panel work when the port disconnects before tab binding", async () => {
@@ -496,6 +497,30 @@ describe("background reader events", () => {
     expect(harness.cancelledTabs).toEqual([]);
   });
 
+  it("retains only the first sixteen strict commands while active-tab binding is pending", async () => {
+    const harness = createHarness();
+    let resolveTabs: ((tabs: Array<{ id?: number; url?: string }>) => void) | undefined;
+    harness.dependencies.tabs.queryActive = () =>
+      new Promise((resolve) => {
+        resolveTabs = resolve;
+      });
+    const port = new FakePort("explain-this-side-panel", {
+      id: "extension-id",
+      url: "chrome-extension://extension-id/sidepanel.html",
+    });
+    const command = {
+      type: "retry-request" as const,
+      requestId: "123e4567-e89b-42d3-a456-426614174014",
+    };
+    const binding = harness.handlers.onPortConnected(port);
+
+    for (let index = 0; index < 18; index += 1) port.emitMessage(command);
+    resolveTabs?.([{ id: 17, url: "https://trusted.example/article" }]);
+    await binding;
+
+    expect(harness.coordinatedCommands).toEqual(Array(16).fill(command));
+  });
+
   it("cleans the temporary command queue when active-tab resolution fails", async () => {
     const harness = createHarness();
     harness.dependencies.tabs.queryActive = async () => {
@@ -508,6 +533,23 @@ describe("background reader events", () => {
 
     await expect(harness.handlers.onPortConnected(port)).resolves.toBeUndefined();
 
+    expect(port.onMessage.listeners.size).toBe(0);
+    expect(port.onDisconnect.listeners.size).toBe(0);
+    expect(port.disconnected).toBe(true);
+    expect(harness.coordinatedPorts).toEqual([]);
+  });
+
+  it("disconnects a trusted side-panel port when no supported active tab is available", async () => {
+    const harness = createHarness();
+    harness.setActiveTabs([{ id: 17, url: "chrome://settings/" }]);
+    const port = new FakePort("explain-this-side-panel", {
+      id: "extension-id",
+      url: "chrome-extension://extension-id/sidepanel.html",
+    });
+
+    await harness.handlers.onPortConnected(port);
+
+    expect(port.disconnected).toBe(true);
     expect(port.onMessage.listeners.size).toBe(0);
     expect(port.onDisconnect.listeners.size).toBe(0);
     expect(harness.coordinatedPorts).toEqual([]);

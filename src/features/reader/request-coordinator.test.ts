@@ -499,6 +499,29 @@ describe("RequestCoordinator", () => {
     await vi.waitFor(() => expect(provider.calls[0]?.signal.aborted).toBe(true));
   });
 
+  it("does not abort a content-owned generation when a side-panel port disconnects", async () => {
+    const { coordinator, provider } = createHarness();
+    const contentPort = new TestPort();
+    const sidePanelPort = new TestPort();
+    provider.plans.push(async function* ({ requestId, signal }) {
+      yield { type: "started", requestId };
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      yield { type: "cancelled", requestId };
+    });
+    coordinator.handle(contentPort, sender());
+    contentPort.send({ type: "start-request", request: request() });
+    await waitForCalls(provider, 1);
+    coordinator.handleSidePanel(sidePanelPort, sender());
+
+    sidePanelPort.disconnect();
+
+    expect(provider.calls[0]?.signal.aborted).toBe(false);
+    contentPort.send({ type: "cancel-request", requestId: REQUEST_1 });
+    await vi.waitFor(() => expect(provider.calls[0]?.signal.aborted).toBe(true));
+  });
+
   it("ignores stale events from a cancelled provider without overwriting new state", async () => {
     const { coordinator, provider, sessionRepository } = createHarness();
     const firstPort = new TestPort();

@@ -13,6 +13,10 @@ import {
 } from "../features/onboarding/onboarding-service";
 import type { OnboardingEvent } from "../features/onboarding/contracts";
 import type { PortLike } from "../platform/messaging/port";
+import {
+  createReaderRuntimeHandler,
+  type ReaderRuntimeSender,
+} from "../platform/messaging/reader-runtime";
 import { readerBrowserApi } from "../platform/permissions/browser-api";
 import { ReaderAccessController } from "../platform/permissions/reader-access";
 import {
@@ -144,6 +148,21 @@ export default defineBackground(() => {
   browser.contextMenus.onClicked.addListener(handlers.onContextMenuClick);
   browser.commands.onCommand.addListener(handlers.onCommand);
   browser.tabs.onRemoved.addListener(handlers.onTabRemoved);
+  const readerRuntimeHandler = createReaderRuntimeHandler({
+    extensionId: browser.runtime.id,
+    settingsRepository: dependencies.settingsRepository,
+    openSidePanel: (tabId) => browser.sidePanel.open({ tabId }),
+  });
+  browser.runtime.onMessage.addListener((message, sender) => {
+    const type =
+      typeof message === "object" && message !== null && "type" in message
+        ? message.type
+        : undefined;
+    if (type !== "get-reader-config" && type !== "open-side-panel") {
+      return undefined;
+    }
+    return readerRuntimeHandler(message, sender as ReaderRuntimeSender);
+  });
   browser.runtime.onConnect.addListener((port) => {
     const browserPort = port as unknown as BrowserPort;
     if (isTrustedOnboardingPort(browserPort, browser.runtime.getURL("/"))) {

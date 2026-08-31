@@ -43,6 +43,7 @@ interface PortContext extends TrustedReaderIdentity {
   port: PortLike;
   disconnected: boolean;
   epoch: number;
+  allowTabCancellation: boolean;
 }
 
 interface ActiveGeneration extends TrustedReaderIdentity {
@@ -121,6 +122,19 @@ export class RequestCoordinator {
   }
 
   handle(port: PortLike, sender: TrustedPortSender): void {
+    this.bind(port, sender, false);
+  }
+
+  /** Called only after the background validates and binds the extension side panel. */
+  handleSidePanel(port: PortLike, sender: TrustedPortSender): void {
+    this.bind(port, sender, true);
+  }
+
+  private bind(
+    port: PortLike,
+    sender: TrustedPortSender,
+    allowTabCancellation: boolean,
+  ): void {
     let identity: TrustedReaderIdentity;
     try {
       identity = trustedIdentity(sender);
@@ -134,6 +148,7 @@ export class RequestCoordinator {
       port,
       disconnected: false,
       epoch: ++this.nextEpoch,
+      allowTabCancellation,
     };
     const onMessage = (input: unknown): void => {
       let message: ReaderCommandMessage;
@@ -199,7 +214,10 @@ export class RequestCoordinator {
       case "cancel-request":
         if (
           this.active?.requestId === message.requestId &&
-          this.active.port === context.port
+          (this.active.port === context.port ||
+            (context.allowTabCancellation &&
+              this.active.tabId === context.tabId &&
+              this.active.origin === context.origin))
         ) {
           this.active.controller.abort();
         }

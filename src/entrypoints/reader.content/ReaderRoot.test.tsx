@@ -193,6 +193,24 @@ describe("reader in-page UI", () => {
     expect(harness.openSidePanel).toHaveBeenCalledOnce();
   });
 
+  it("reports a safe unsupported message when side-panel opening fails", async () => {
+    const harness = createUiHarness();
+    harness.openSidePanel.mockRejectedValueOnce(
+      new Error("Sensitive browser implementation detail"),
+    );
+    await harness.openActions();
+    harness.start();
+    harness.delta("Completed answer");
+    harness.complete();
+
+    await userEvent.click(screen.getByRole("button", { name: /open in side panel/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /side panel is unavailable in this browser/i,
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/sensitive/i);
+  });
+
   it("marks interrupted output incomplete and exposes recoverable Retry", async () => {
     const harness = createUiHarness();
     await harness.openActions();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ActionToolbar } from "../../components/ActionToolbar";
 import { ResponseCard } from "../../components/ResponseCard";
 import { placeFloatingSurface } from "../../core/privacy/position";
@@ -9,6 +9,7 @@ export interface ReaderRootProps {
 }
 
 export function ReaderRoot({ controller }: ReaderRootProps) {
+  const [sidePanelError, setSidePanelError] = useState<string>();
   const state = useSyncExternalStore(
     controller.subscribe,
     controller.getState,
@@ -56,9 +57,15 @@ export function ReaderRoot({ controller }: ReaderRootProps) {
           onStop={() => controller.stop()}
           onRetry={() => controller.retry()}
           onCopy={() => void controller.copyAnswer()}
-          onOpenSidePanel={() => void controller.openSidePanel()}
+          onOpenSidePanel={() => {
+            setSidePanelError(undefined);
+            void controller.openSidePanel().catch(() => {
+              setSidePanelError("The side panel is unavailable in this browser.");
+            });
+          }}
           onFollowUp={(intent) => controller.followUp(intent)}
           onClose={() => controller.closeFor("invalidation")}
+          {...(sidePanelError === undefined ? {} : { sidePanelError })}
         />
       )}
     </div>

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES } from "../../features/settings/settings";
-import { parseBackgroundPortMessage, parseReaderPortMessage } from "./contracts";
+import {
+  parseBackgroundPortMessage,
+  parseReaderPortMessage,
+  parseReaderSession,
+} from "./contracts";
 
 const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -140,5 +144,24 @@ describe("reader port message contract", () => {
     },
   ])("rejects malformed background port input %#", (message) => {
     expect(parseBackgroundPortMessage(message)).toBeUndefined();
+  });
+
+  it("parses a safe stored session but rejects records with private source fields", () => {
+    const safeSession = {
+      tabId: 7,
+      requestId: REQUEST_ID,
+      selectionPreview: "A bounded selection.",
+      action: "explain",
+      contextIncluded: false,
+      status: "completed",
+      answer: "A bounded answer.",
+      lastSequence: 0,
+      origin: "https://reader.example",
+    };
+
+    expect(parseReaderSession(safeSession)).toEqual(safeSession);
+    expect(
+      parseReaderSession({ ...safeSession, selection: "Private source text" }),
+    ).toBeUndefined();
   });
 });

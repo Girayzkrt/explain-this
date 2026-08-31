@@ -159,3 +159,9 @@ export function parseBackgroundPortMessage(
   const result = BackgroundPortMessageSchema.safeParse(input);
   return result.success ? (result.data as BackgroundPortMessage) : undefined;
 }
+
+/** Parse the public session record without accepting any source-only fields. */
+export function parseReaderSession(input: unknown): ReaderSession | undefined {
+  const result = ReaderSessionSchema.safeParse(input);
+  return result.success ? (result.data as ReaderSession) : undefined;
+}

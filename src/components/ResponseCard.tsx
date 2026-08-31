@@ -12,6 +12,7 @@ export interface ResponseCardProps {
   onOpenSidePanel(): void;
   onFollowUp(intent: FollowUpIntent): void;
   onClose(): void;
+  sidePanelError?: string;
 }
 
 const actionLabels = {
@@ -40,6 +41,7 @@ export function ResponseCard({
   onOpenSidePanel,
   onFollowUp,
   onClose,
+  sidePanelError,
 }: ResponseCardProps) {
   const answer = answerFor(state);
   const active = state.status === "connecting" || state.status === "generating";
@@ -76,6 +78,11 @@ export function ResponseCard({
       {state.status === "failed" ? (
         <div className="reader-alert" role="alert">
           {state.error.message}
+        </div>
+      ) : null}
+      {sidePanelError ? (
+        <div className="reader-alert" role="alert">
+          {sidePanelError}
         </div>
       ) : null}
       {incomplete ? <p className="reader-incomplete">Incomplete output</p> : null}

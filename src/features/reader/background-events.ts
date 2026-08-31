@@ -1,9 +1,14 @@
 import type { ReadingAction } from "../../core/requests/types";
+import {
+  parseReaderPortMessage,
+  type ReaderCommandMessage,
+} from "../../platform/messaging/contracts";
 import type { PortLike, TrustedPortSender } from "../../platform/messaging/port";
 import type { ReaderInvocationCommand } from "../../platform/messaging/reader-command";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
 
 export const READER_PORT_NAME = "explain-this-reader";
+export const SIDE_PANEL_PORT_NAME = "explain-this-side-panel";
 
 const MENU_PARENT_ID = "explain-this";
 const EXPLAIN_COMMAND = "explain-selection";
@@ -26,7 +31,7 @@ export interface BrowserTab {
 
 export interface BrowserPort extends PortLike {
   name: string;
-  sender?: TrustedPortSender | undefined;
+  sender?: (TrustedPortSender & { id?: string | undefined }) | undefined;
 }
 
 export interface ContextMenuCreateData {
@@ -51,6 +56,10 @@ export interface BackgroundDependencies {
   sidePanel: {
     setPanelBehavior(behavior: { openPanelOnActionClick: true }): Promise<void>;
   };
+  extensionPage: {
+    extensionId: string;
+    sidePanelUrl: string;
+  };
   readerAccess: {
     injectForExplicitAction(tabId: number, pageUrl: string): Promise<void>;
     invalidateExplicitInjection(tabId: number): void;
@@ -61,6 +70,7 @@ export interface BackgroundDependencies {
   settingsRepository: Pick<SettingsRepository, "get" | "update">;
   coordinator: {
     handle(port: PortLike, sender: TrustedPortSender): void;
+    handleSidePanel(port: PortLike, sender: TrustedPortSender): void;
     cancelForTab(tabId: number): Promise<void>;
   };
 }
@@ -70,7 +80,7 @@ export interface BackgroundHandlers {
   onContextMenuClick(info: ContextMenuClickData, tab?: BrowserTab): Promise<void>;
   onCommand(command: string): Promise<void>;
   onTabRemoved(tabId: number): Promise<void>;
-  onPortConnected(port: BrowserPort): void;
+  onPortConnected(port: BrowserPort): Promise<void>;
 }
 
 const menuItems: readonly ContextMenuCreateData[] = [
@@ -123,6 +133,45 @@ function trustedTab(tab: BrowserTab | undefined): tab is BrowserTab & {
   url: string;
 } {
   return Number.isInteger(tab?.id) && (tab?.id ?? 0) > 0 && supportedPageUrl(tab?.url);
+}
+
+function trustedSidePanelPort(
+  port: BrowserPort,
+  extensionId: string,
+  sidePanelUrl: string,
+): boolean {
+  return (
+    port.name === SIDE_PANEL_PORT_NAME &&
+    port.sender?.id === extensionId &&
+    port.sender.url === sidePanelUrl
+  );
+}
+
+function bindQueuedCommands(
+  port: BrowserPort,
+  queued: ReaderCommandMessage[],
+): PortLike {
+  let queueDelivered = false;
+  return {
+    postMessage(message) {
+      port.postMessage(message);
+    },
+    onMessage: {
+      addListener(listener) {
+        port.onMessage.addListener(listener);
+        if (queueDelivered) return;
+        queueDelivered = true;
+        for (const message of queued.splice(0)) listener(message);
+      },
+      removeListener(listener) {
+        port.onMessage.removeListener(listener);
+      },
+    },
+    onDisconnect: port.onDisconnect,
+    disconnect() {
+      port.disconnect();
+    },
+  };
 }
 
 async function recreateMenus(dependencies: BackgroundDependencies): Promise<void> {
@@ -181,7 +230,51 @@ export function createBackgroundHandlers(
       await dependencies.coordinator.cancelForTab(tabId);
     },
 
-    onPortConnected(port) {
+    async onPortConnected(port) {
+      if (
+        trustedSidePanelPort(
+          port,
+          dependencies.extensionPage.extensionId,
+          dependencies.extensionPage.sidePanelUrl,
+        )
+      ) {
+        const queued: ReaderCommandMessage[] = [];
+        let disconnected = false;
+        const queueStrictCommand = (input: unknown): void => {
+          try {
+            queued.push(parseReaderPortMessage(input));
+          } catch {
+            // The coordinator also closes over this strict parser after tab binding.
+          }
+        };
+        const markDisconnected = (): void => {
+          disconnected = true;
+          queued.splice(0);
+        };
+        port.onMessage.addListener(queueStrictCommand);
+        port.onDisconnect.addListener(markDisconnected);
+
+        let tab: BrowserTab | undefined;
+        try {
+          [tab] = await dependencies.tabs.queryActive();
+        } catch {
+          queued.splice(0);
+          return;
+        } finally {
+          port.onMessage.removeListener(queueStrictCommand);
+          port.onDisconnect.removeListener(markDisconnected);
+        }
+        if (disconnected || !trustedTab(tab)) return;
+
+        const boundPort = bindQueuedCommands(port, queued);
+        dependencies.coordinator.handleSidePanel(boundPort, {
+          origin: new URL(tab.url).origin,
+          url: tab.url,
+          tab: { id: tab.id, url: tab.url },
+        });
+        return;
+      }
+
       const tabId = port.sender?.tab?.id;
       if (
         port.name !== READER_PORT_NAME ||

@@ -132,6 +132,10 @@ function createProductionBackgroundDependencies(
     sidePanel: {
       setPanelBehavior: (behavior) => browser.sidePanel.setPanelBehavior(behavior),
     },
+    extensionPage: {
+      extensionId: browser.runtime.id,
+      sidePanelUrl: new URL("sidepanel.html", browser.runtime.getURL("/")).href,
+    },
     readerAccess,
     settingsRepository,
     coordinator,
@@ -171,7 +175,7 @@ export default defineBackground(() => {
       );
       return;
     }
-    handlers.onPortConnected(browserPort);
+    void handlers.onPortConnected(browserPort);
   });
 
   void initializeBackgroundServices(dependencies).catch((error: unknown) => {

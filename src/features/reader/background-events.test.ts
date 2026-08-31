@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFERENCES } from "../settings/settings";
 import type { PortLike, TrustedPortSender } from "../../platform/messaging/port";
+import type { ReaderCommandMessage } from "../../platform/messaging/contracts";
 import {
   createBackgroundHandlers,
   initializeBackgroundServices,
@@ -28,7 +29,7 @@ class FakePort implements PortLike {
 
   constructor(
     readonly name: string,
-    readonly sender?: TrustedPortSender,
+    readonly sender?: TrustedPortSender & { id?: string },
   ) {}
 
   postMessage(message: never): void {
@@ -42,6 +43,10 @@ class FakePort implements PortLike {
   emitDisconnect(): void {
     for (const listener of [...this.onDisconnect.listeners]) listener();
   }
+
+  emitMessage(message: unknown): void {
+    for (const listener of [...this.onMessage.listeners]) listener(message);
+  }
 }
 
 function createHarness() {
@@ -53,6 +58,8 @@ function createHarness() {
   const forgottenTabs: number[] = [];
   const sent: Array<{ tabId: number; message: unknown }> = [];
   const coordinatedPorts: PortLike[] = [];
+  const coordinatedSenders: TrustedPortSender[] = [];
+  const coordinatedCommands: ReaderCommandMessage[] = [];
   const cancelledTabs: number[] = [];
   const panelBehaviors: Array<{ openPanelOnActionClick: true }> = [];
   let restoreAutomaticAccessCalls = 0;
@@ -94,6 +101,10 @@ function createHarness() {
         panelBehaviors.push(behavior);
       },
     },
+    extensionPage: {
+      extensionId: "extension-id",
+      sidePanelUrl: "chrome-extension://extension-id/sidepanel.html",
+    },
     readerAccess: {
       async injectForExplicitAction(tabId, pageUrl) {
         injected.push({ tabId, pageUrl });
@@ -130,8 +141,19 @@ function createHarness() {
       },
     },
     coordinator: {
-      handle(port) {
+      handle(port, sender) {
         coordinatedPorts.push(port);
+        coordinatedSenders.push(sender);
+        port.onMessage.addListener((message) => {
+          coordinatedCommands.push(message as ReaderCommandMessage);
+        });
+      },
+      handleSidePanel(port, sender) {
+        coordinatedPorts.push(port);
+        coordinatedSenders.push(sender);
+        port.onMessage.addListener((message) => {
+          coordinatedCommands.push(message as ReaderCommandMessage);
+        });
       },
       async cancelForTab(tabId) {
         cancelledTabs.push(tabId);
@@ -149,6 +171,8 @@ function createHarness() {
     forgottenTabs,
     sent,
     coordinatedPorts,
+    coordinatedSenders,
+    coordinatedCommands,
     cancelledTabs,
     panelBehaviors,
     settingsUpdates,
@@ -388,6 +412,105 @@ describe("background reader events", () => {
 
     expect(harness.coordinatedPorts).toEqual([approved]);
     expect(harness.invalidatedTabs).toEqual([]);
+  });
+
+  it("binds queued strict side-panel commands to browser-owned active-tab identity", async () => {
+    const harness = createHarness();
+    const port = new FakePort("explain-this-side-panel", {
+      id: "extension-id",
+      url: "chrome-extension://extension-id/sidepanel.html",
+      tab: { id: 999, url: "https://caller-supplied.example" },
+    });
+
+    const binding = harness.handlers.onPortConnected(port);
+    port.emitMessage({
+      type: "follow-up",
+      requestId: "123e4567-e89b-42d3-a456-426614174014",
+      intent: "why",
+    });
+    port.emitMessage({
+      type: "follow-up",
+      requestId: "123e4567-e89b-42d3-a456-426614174014",
+      intent: "free-form",
+      tabId: 999,
+    });
+    await binding;
+
+    expect(harness.coordinatedSenders).toEqual([
+      {
+        origin: "https://trusted.example",
+        url: "https://trusted.example/article",
+        tab: { id: 17, url: "https://trusted.example/article" },
+      },
+    ]);
+    expect(harness.coordinatedCommands).toEqual([
+      {
+        type: "follow-up",
+        requestId: "123e4567-e89b-42d3-a456-426614174014",
+        intent: "why",
+      },
+    ]);
+    expect(JSON.stringify(harness.coordinatedSenders)).not.toContain(
+      "caller-supplied.example",
+    );
+  });
+
+  it("rejects lookalike extension pages before resolving a side-panel action", async () => {
+    const harness = createHarness();
+    const port = new FakePort("explain-this-side-panel", {
+      id: "extension-id",
+      url: "chrome-extension://extension-id/options.html",
+    });
+
+    await harness.handlers.onPortConnected(port);
+    port.emitMessage({
+      type: "retry-request",
+      requestId: "123e4567-e89b-42d3-a456-426614174014",
+    });
+
+    expect(harness.coordinatedPorts).toEqual([]);
+  });
+
+  it("drops queued side-panel work when the port disconnects before tab binding", async () => {
+    const harness = createHarness();
+    let resolveTabs: ((tabs: Array<{ id?: number; url?: string }>) => void) | undefined;
+    harness.dependencies.tabs.queryActive = () =>
+      new Promise((resolve) => {
+        resolveTabs = resolve;
+      });
+    const port = new FakePort("explain-this-side-panel", {
+      id: "extension-id",
+      url: "chrome-extension://extension-id/sidepanel.html",
+    });
+
+    const binding = harness.handlers.onPortConnected(port);
+    port.emitMessage({
+      type: "retry-request",
+      requestId: "123e4567-e89b-42d3-a456-426614174014",
+    });
+    port.emitDisconnect();
+    resolveTabs?.([{ id: 17, url: "https://trusted.example/article" }]);
+    await binding;
+
+    expect(harness.coordinatedPorts).toEqual([]);
+    expect(harness.cancelledTabs).toEqual([]);
+  });
+
+  it("cleans the temporary command queue when active-tab resolution fails", async () => {
+    const harness = createHarness();
+    harness.dependencies.tabs.queryActive = async () => {
+      throw new Error("tabs unavailable");
+    };
+    const port = new FakePort("explain-this-side-panel", {
+      id: "extension-id",
+      url: "chrome-extension://extension-id/sidepanel.html",
+    });
+
+    await expect(harness.handlers.onPortConnected(port)).resolves.toBeUndefined();
+
+    expect(port.onMessage.listeners.size).toBe(0);
+    expect(port.onDisconnect.listeners.size).toBe(0);
+    expect(harness.coordinatedPorts).toEqual([]);
   });
 
   it("lets only the latest same-tab reader port invalidate on disconnect", () => {

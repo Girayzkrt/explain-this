@@ -2,11 +2,7 @@ import type { ReadingPreferences } from "../../features/settings/settings";
 
 export type ReadingAction = "explain" | "simplify" | "translate" | "example";
 
-export type FollowUpIntent =
-  | "simpler"
-  | "more-detail"
-  | "why"
-  | "another-example";
+export type FollowUpIntent = "simpler" | "more-detail" | "why" | "another-example";
 
 export interface ReadingRequest {
   requestId: string;
@@ -18,7 +14,7 @@ export interface ReadingRequest {
   preferences: ReadingPreferences;
 }
 
-export interface ValidatedReadingRequest extends ReadingRequest {}
+export type ValidatedReadingRequest = ReadingRequest;
 
 export interface BudgetedReadingContent {
   selection: string;

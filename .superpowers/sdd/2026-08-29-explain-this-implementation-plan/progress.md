@@ -93,7 +93,7 @@ Task 2: verification (2026-08-29): focused request suite 14/14 passed and type-c
 Task 2: complete (commits 6758a3d..f9259b2, review clean)
 Task 3: verification (2026-08-29): focused prompt suite 20/20 passed and type-check exited 0.
 Task 3: complete (commits f9259b2..d21f71e, review clean)
-Task 4: deferred minor: repository-wide lint now exposes Task 2's empty `ValidatedReadingRequest` marker interface; replace it with an equivalent type alias no later than the CI increment.
+Task 4: deferred minor resolved during Task 13 acceptance: the empty `ValidatedReadingRequest` marker interface is now an equivalent type alias, clearing repository-wide lint without changing behavior.
 Task 4: fix round 1/5 (2 addressed, 0 open — buffered and pre-aborted stream cancellation; commits bf3c1e7..9b2953f)
 Task 4: verification (2026-08-29): focused streaming suite 12/12 passed and type-check exited 0.
 Task 4: complete (commits d21f71e..9b2953f, review clean)
@@ -142,5 +142,8 @@ Task 12: verification (2026-08-31): privacy suite 44/44 and full suite 298/298 p
 Task 12: complete (commits bd54c48..18fe147, re-review clean; repeated-text removal and real-browser geometry remain deferred gates)
 Task 13: review round 1 (3 confirmed important open — preflight Retry no-op, unparsed port messages, and async invocation ordering; implementation commit 0aa6ba3)
 Task 13: review finding dismissed after source verification: WXT creates the shadow host with `document.createElement(options.name)`, so `querySelector("explain-this-reader")` is the correct host selector; the existing access controller also coalesces same-page explicit injection. A narrow async mount-race hardening remains optional, not an acceptance blocker.
-Task 13: minor (deferred): cancel an already-scheduled empty animation-frame flush after terminal events and surface side-panel opening failures in the Task 15 recovery UI.
+Task 13: minor (deferred): surface side-panel opening failures in the Task 15 recovery UI.
+Task 13: fix round 1/5 (3 addressed, 0 open — truthful no-context preflight retry, strict bounded port parsing, newest-invocation epoch ownership; commits 0aa6ba3..035bd03; terminal rAF cleanup also completed)
+Task 13: verification (2026-08-31): focused reader/runtime/invocation suite 75/75 and full suite 341/341 passed; type-check, repository-wide lint, production build, changed-file Prettier, and diff checks exited 0. Full Prettier remains red only on three pre-existing files outside the Task 13/final cleanup boundary.
+Task 13: complete (commits 18fe147..035bd03 plus acceptance-cleanup commit, fix re-review clean; async mount race and side-panel failure UX remain deferred)
 Task 13: fix round 1/5 (3 addressed, 0 open — truthful no-context preflight retry, strict worker-port parsing, invocation epoch ownership, and terminal rAF cancellation; focused reader/runtime suite 75/75 and type-check passed).

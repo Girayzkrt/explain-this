@@ -11,7 +11,9 @@ class FakeBrowserPort implements ReaderBrowserPort {
   private readonly messageListeners = new Set<(message: unknown) => void>();
   private readonly disconnectListeners = new Set<() => void>();
 
-  postMessage(_message: ReaderPortMessage): void {}
+  postMessage(message: ReaderPortMessage): void {
+    void message;
+  }
 
   onMessage = {
     addListener: (listener: (message: unknown) => void): void => {

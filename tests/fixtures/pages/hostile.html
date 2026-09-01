@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-fixture="hostile">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hostile CSS fixture</title>
+    <style>
+      * {
+        font-family: fantasy !important;
+        font-size: 37px !important;
+        line-height: 3 !important;
+      }
+      button {
+        all: unset !important;
+        color: magenta !important;
+      }
+      div,
+      article {
+        position: static !important;
+        z-index: -999 !important;
+      }
+      explain-this-reader {
+        color: transparent !important;
+      }
+      body {
+        margin: 0;
+        background: #111;
+      }
+      main {
+        margin: 120px 80px;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p id="hostile-target">
+        Hostile pages should not restyle
+        <span id="hostile-selection">local reader controls</span>.
+      </p>
+    </main>
+  </body>
+</html>

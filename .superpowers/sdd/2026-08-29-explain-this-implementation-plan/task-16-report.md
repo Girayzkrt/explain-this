@@ -1,4 +1,4 @@
-# Task 16 checkpoint A report: deterministic local E2E servers
+# Task 16 checkpoint A/B report: deterministic local E2E servers and harness
 
 ## Outcome
 
@@ -57,6 +57,38 @@ Checkpoint files:
 - `tests/fixtures/pages/normal.html`
 - `tests/fixtures/pages/hostile.html`
 - `tests/fixtures/pages/multilingual.html`
+
+## Checkpoint B: secure packaged-extension harness
+
+Checkpoint B adds no browser-flow specifications. It provides the common harness
+that later E2E specifications consume:
+
+- `wxt build --mode e2e` accepts only two distinct exact
+  `http://127.0.0.1:<port>` origins supplied through
+  `VITE_EXPLAIN_THIS_OLLAMA_BASE_URL` and
+  `VITE_EXPLAIN_THIS_FIXTURE_ORIGIN`; malformed or missing variables fail the
+  build. The e2e manifest adds only those two required origins. Production mode
+  ignores those variables and keeps its original fixed loopback permission split.
+- The fake Ollama endpoint is injected with a Vite `define` constant only for the
+  e2e package. Production builds compile that constant to `undefined`; the
+  runtime URL guard has no environment-variable fallback.
+- `tests/support/extension-fixture.ts` builds packages in a child process,
+  validates the generated manifest and compiled endpoint constant, launches a
+  headed persistent Chromium profile, resolves the extension service worker/ID,
+  and opens options, side-panel, or fixture pages. Its storage helper evaluates
+  only in the trusted extension worker. Its reader helper uses Chrome's registered
+  keyboard command, so the production background handler injects and invokes the
+  packaged reader; it does not inject raw page code, prompt text, or endpoint
+  values.
+- Fixture teardown first closes the browser context and then removes only the
+  canonical direct child created under the OS temp directory with the
+  `explain-this-` prefix. It rejects temp-root, nested, symlink-resolved, and
+  unrelated paths.
+- `playwright.config.ts` runs one headed worker with event-driven waits and
+  local Windows/macOS settings. No Xvfb command or browser flow is added here.
+
+Focused harness coverage checks endpoint validation, production/e2e build
+invocations, exact manifest splits, and profile cleanup without launching Chromium.
 
 ## Verification and residuals
 

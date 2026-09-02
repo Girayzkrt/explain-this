@@ -523,6 +523,7 @@ describe("options onboarding", () => {
         id: "qwen2.5-coder:7b",
         displayName: "qwen2.5-coder:7b · Code-specialized",
         sizeBytes: 4_700_000_000,
+        origin: "local",
       },
     ]);
 

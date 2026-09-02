@@ -63,7 +63,9 @@ interface ChatCall {
 class FakeProvider implements DownloadableModelProvider {
   health: ProviderHealth = { available: true };
   healthError: unknown;
-  models: ModelInfo[] = [{ id: RECOMMENDED_MODEL, displayName: RECOMMENDED_MODEL }];
+  models: ModelInfo[] = [
+    { id: RECOMMENDED_MODEL, displayName: RECOMMENDED_MODEL, origin: "local" },
+  ];
   details = new Map<string, ModelDetails>();
   readonly chatCalls: ChatCall[] = [];
   readonly listCalls: AbortSignal[] = [];
@@ -97,7 +99,9 @@ class FakeProvider implements DownloadableModelProvider {
     return this.listPlan(signal);
   }
   async getModelDetails(model: string): Promise<ModelDetails> {
-    return this.details.get(model) ?? { id: model, displayName: model };
+    return (
+      this.details.get(model) ?? { id: model, displayName: model, origin: "local" }
+    );
   }
   streamChat(
     requestId: string,
@@ -279,14 +283,15 @@ describe("onboarding service", () => {
   it("labels only explicit code-specialized model families or names", async () => {
     const harness = createHarness();
     harness.provider.models = [
-      { id: "qwen3:4b", displayName: "qwen3:4b" },
-      { id: "codegemma:7b", displayName: "codegemma:7b" },
-      { id: "custom:latest", displayName: "Custom" },
+      { id: "qwen3:4b", displayName: "qwen3:4b", origin: "local" },
+      { id: "codegemma:7b", displayName: "codegemma:7b", origin: "local" },
+      { id: "custom:latest", displayName: "Custom", origin: "local" },
     ];
     harness.provider.details.set("custom:latest", {
       id: "custom:latest",
       displayName: "Custom",
       family: "starcoder2",
+      origin: "local",
     });
 
     harness.port.send({ type: "list-models" });
@@ -296,9 +301,17 @@ describe("onboarding service", () => {
       {
         type: "models-result",
         models: [
-          { id: "qwen3:4b", displayName: "qwen3:4b" },
-          { id: "codegemma:7b", displayName: "codegemma:7b · Code-specialized" },
-          { id: "custom:latest", displayName: "Custom · Code-specialized" },
+          { id: "qwen3:4b", displayName: "qwen3:4b", origin: "local" },
+          {
+            id: "codegemma:7b",
+            displayName: "codegemma:7b · Code-specialized",
+            origin: "local",
+          },
+          {
+            id: "custom:latest",
+            displayName: "Custom · Code-specialized",
+            origin: "local",
+          },
         ],
       },
     ]);
@@ -306,7 +319,9 @@ describe("onboarding service", () => {
 
   it("downloads only the recommended model or an exact installed-library name and streams progress", async () => {
     const harness = createHarness();
-    harness.provider.models = [{ id: "llama3.2:3b", displayName: "Llama" }];
+    harness.provider.models = [
+      { id: "llama3.2:3b", displayName: "Llama", origin: "local" },
+    ];
 
     harness.port.send({ type: "download-model", model: "llama3.2:3b" });
     await settle();
@@ -372,7 +387,9 @@ describe("onboarding service", () => {
     const harness = createHarness();
     const releaseValidation = deferred<void>();
     let validationSignal: AbortSignal | undefined;
-    harness.provider.models = [{ id: "llama3.2:3b", displayName: "Llama" }];
+    harness.provider.models = [
+      { id: "llama3.2:3b", displayName: "Llama", origin: "local" },
+    ];
     harness.provider.listPlan = async (signal) => {
       validationSignal = signal;
       await releaseValidation.promise;
@@ -414,7 +431,9 @@ describe("onboarding service", () => {
   it("suppresses late progress and failure from a replaced download generation", async () => {
     const harness = createHarness();
     const releaseStaleDownload = deferred<void>();
-    harness.provider.models = [{ id: "installed:latest", displayName: "Installed" }];
+    harness.provider.models = [
+      { id: "installed:latest", displayName: "Installed", origin: "local" },
+    ];
     harness.provider.downloadPlan = async function* (model) {
       yield { type: "started", model };
       if (model === RECOMMENDED_MODEL) {
@@ -489,7 +508,9 @@ describe("onboarding service", () => {
 
   it("rejects readiness for a model outside the exact recommended-or-installed boundary", async () => {
     const harness = createHarness();
-    harness.provider.models = [{ id: "llama3.2:3b", displayName: "Llama" }];
+    harness.provider.models = [
+      { id: "llama3.2:3b", displayName: "Llama", origin: "local" },
+    ];
 
     harness.port.send({
       type: "run-readiness",

@@ -34,10 +34,13 @@ export interface ProviderHealth {
   secondaryAction?: "show-origin-guidance";
 }
 
+export type ModelOrigin = "local" | "cloud" | "unknown";
+
 export interface ModelInfo {
   id: string;
   displayName: string;
   sizeBytes?: number;
+  origin: ModelOrigin;
 }
 
 export interface ModelDetails extends ModelInfo {

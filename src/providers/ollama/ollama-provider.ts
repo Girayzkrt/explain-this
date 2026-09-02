@@ -11,6 +11,7 @@ import type {
   StreamEvent,
 } from "../provider";
 import { mapOllamaFailure, mapOllamaResponseError, toPublicErrorShape } from "./errors";
+import { deriveModelOrigin } from "./model-origin";
 import {
   ollamaChatChunkSchema,
   ollamaModelDetailsSchema,
@@ -122,7 +123,8 @@ export class OllamaProvider implements DownloadableModelProvider {
     return tags.models.map((model) => ({
       id: model.name,
       displayName: model.name,
-      sizeBytes: model.size,
+      ...(model.size === undefined ? {} : { sizeBytes: model.size }),
+      origin: deriveModelOrigin(model.name, model.size),
     }));
   }
 
@@ -145,7 +147,11 @@ export class OllamaProvider implements DownloadableModelProvider {
       if (!response.ok) throw mapOllamaResponseError(response);
 
       const ollamaDetails = ollamaModelDetailsSchema.parse(await response.json());
-      const details: ModelDetails = { id: model, displayName: model };
+      const details: ModelDetails = {
+        id: model,
+        displayName: model,
+        origin: deriveModelOrigin(model, undefined),
+      };
       if (ollamaDetails.details.family !== undefined) {
         details.family = ollamaDetails.details.family;
       }

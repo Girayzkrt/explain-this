@@ -63,12 +63,14 @@ function createFakeProvider(
       calls.models += 1;
       if (overrides.modelsError !== undefined) throw overrides.modelsError;
       return (
-        overrides.models ?? [{ id: RECOMMENDED_MODEL, displayName: RECOMMENDED_MODEL }]
+        overrides.models ?? [
+          { id: RECOMMENDED_MODEL, displayName: RECOMMENDED_MODEL, origin: "local" },
+        ]
       );
     },
     async getModelDetails(model) {
       calls.details.push(model);
-      return { id: model, displayName: model } satisfies ModelDetails;
+      return { id: model, displayName: model, origin: "local" } satisfies ModelDetails;
     },
     async *streamChat(requestId, request) {
       calls.chats.push(request);
@@ -296,7 +298,7 @@ describe("evaluation preflight", () => {
 
   it("fails without downloading when the model is missing", async () => {
     const { provider, calls } = createFakeProvider({
-      models: [{ id: "llama3:8b", displayName: "llama3:8b" }],
+      models: [{ id: "llama3:8b", displayName: "llama3:8b", origin: "local" }],
     });
 
     await expect(

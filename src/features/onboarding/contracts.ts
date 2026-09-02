@@ -80,6 +80,7 @@ const ModelInfoSchema = z
     id: z.string().min(1).max(200),
     displayName: z.string().min(1).max(260),
     sizeBytes: z.number().nonnegative().optional(),
+    origin: z.enum(["local", "cloud", "unknown"]),
   })
   .strict();
 

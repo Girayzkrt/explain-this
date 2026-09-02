@@ -115,8 +115,18 @@ describe("OllamaProvider", () => {
     });
 
     await expect(provider.listModels(new AbortController().signal)).resolves.toEqual([
-      { id: "qwen3:4b", displayName: "qwen3:4b", sizeBytes: 2_500_000_000 },
-      { id: "gemma3:1b", displayName: "gemma3:1b", sizeBytes: 815_000_000 },
+      {
+        id: "qwen3:4b",
+        displayName: "qwen3:4b",
+        sizeBytes: 2_500_000_000,
+        origin: "local",
+      },
+      {
+        id: "gemma3:1b",
+        displayName: "gemma3:1b",
+        sizeBytes: 815_000_000,
+        origin: "local",
+      },
     ]);
   });
 
@@ -194,6 +204,7 @@ describe("OllamaProvider", () => {
       displayName: "qwen3:4b",
       family: "qwen3",
       parameterSize: "4.0B",
+      origin: "unknown",
     });
   });
 

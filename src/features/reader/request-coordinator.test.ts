@@ -70,8 +70,10 @@ class FakeProvider implements LlmProvider {
     return [];
   }
 
-  async getModelDetails(model: string): Promise<{ id: string; displayName: string }> {
-    return { id: model, displayName: model };
+  async getModelDetails(
+    model: string,
+  ): Promise<{ id: string; displayName: string; origin: "local" }> {
+    return { id: model, displayName: model, origin: "local" };
   }
 
   streamChat(

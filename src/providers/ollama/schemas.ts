@@ -10,7 +10,8 @@ const ollamaDetailsSchema = z
 export const ollamaTagModelSchema = z
   .object({
     name: z.string(),
-    size: z.number().nonnegative(),
+    // Cloud models have no local weights, and may report no size at all.
+    size: z.number().nonnegative().optional(),
     details: ollamaDetailsSchema.optional(),
   })
   .passthrough();

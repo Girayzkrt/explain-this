@@ -76,19 +76,30 @@ class TestController implements SidePanelController {
 function renderPanel(state: SidePanelState) {
   const controller = new TestController(state);
   const copyText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue();
+  const openSettings = vi.fn();
   const result = render(
     <SidePanelApp
       controller={controller}
       copyText={copyText}
-      optionsUrl="chrome-extension://extension-id/options.html"
+      openSettings={openSettings}
     />,
   );
-  return { controller, copyText, ...result };
+  return { controller, copyText, openSettings, ...result };
 }
 
 afterEach(cleanup);
 
 describe("focused explanation side panel", () => {
+  // A link navigated the panel itself away from the current explanation.
+  it("opens settings from a button without navigating the panel", async () => {
+    const { openSettings } = renderPanel({ status: "session", session: session() });
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(openSettings).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("link", { name: /settings/i })).not.toBeInTheDocument();
+  });
+
   it("renders the current selection, context, safe Markdown, copy, and diagnostics", async () => {
     const { controller, copyText } = renderPanel({
       status: "session",
@@ -103,9 +114,7 @@ describe("focused explanation side panel", () => {
     expect(document.querySelector("a[href='https://tracker.example']")).toBeNull();
     expect(document.querySelector("img")).toBeNull();
     expect(document.querySelector("script")).toBeNull();
-    expect(
-      screen.getByRole("link", { name: /model and connection settings/i }),
-    ).toHaveAttribute("href", "chrome-extension://extension-id/options.html");
+    expect(screen.getByRole("button", { name: "Settings" })).toBeVisible();
 
     await userEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(copyText).toHaveBeenCalledWith(session().answer);

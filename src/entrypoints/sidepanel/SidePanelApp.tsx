@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { FollowUpIntent, ReadingAction } from "../../core/requests/types";
+import { Settings } from "lucide-react";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
 import type { SidePanelController } from "../../features/reader/sidepanel-controller";
@@ -7,7 +8,7 @@ import type { SidePanelController } from "../../features/reader/sidepanel-contro
 export interface SidePanelAppProps {
   controller: SidePanelController;
   copyText(text: string): Promise<void>;
-  optionsUrl: string;
+  openSettings(): void;
 }
 
 const actionLabels: Record<ReadingAction, string> = {
@@ -24,7 +25,11 @@ const followUps: ReadonlyArray<{ intent: FollowUpIntent; label: string }> = [
   { intent: "another-example", label: "Another example" },
 ];
 
-export function SidePanelApp({ controller, copyText, optionsUrl }: SidePanelAppProps) {
+export function SidePanelApp({
+  controller,
+  copyText,
+  openSettings,
+}: SidePanelAppProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 
   useEffect(() => {
@@ -58,9 +63,10 @@ export function SidePanelApp({ controller, copyText, optionsUrl }: SidePanelAppP
             menu, or keyboard shortcut.
           </p>
         </section>
-        <a className="diagnostics-link" href={optionsUrl}>
-          Model and connection settings
-        </a>
+        <button className="settings-button" type="button" onClick={openSettings}>
+          <Settings size={15} strokeWidth={1.8} aria-hidden="true" focusable="false" />
+          Settings
+        </button>
       </main>
     );
   }
@@ -142,9 +148,10 @@ export function SidePanelApp({ controller, copyText, optionsUrl }: SidePanelAppP
           </div>
         ) : null}
 
-        <a className="diagnostics-link" href={optionsUrl}>
-          Model and connection settings
-        </a>
+        <button className="settings-button" type="button" onClick={openSettings}>
+          <Settings size={15} strokeWidth={1.8} aria-hidden="true" focusable="false" />
+          Settings
+        </button>
       </section>
     </main>
   );

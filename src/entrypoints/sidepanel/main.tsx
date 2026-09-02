@@ -51,6 +51,6 @@ createRoot(root).render(
   <SidePanelApp
     controller={controller}
     copyText={(text) => navigator.clipboard.writeText(text)}
-    optionsUrl={browser.runtime.getURL("/options.html")}
+    openSettings={() => void browser.runtime.openOptionsPage()}
   />,
 );

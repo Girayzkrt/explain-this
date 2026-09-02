@@ -32,6 +32,7 @@ export type OnboardingState =
       showOriginGuidance: boolean;
     }
   | { step: "origin-guidance"; error: PublicErrorShape }
+  | { step: "cloud-signin-guidance"; error: PublicErrorShape }
   | { step: "choosing-model"; models: ModelInfo[] }
   | { step: "downloading"; progress: ModelDownloadEvent }
   | { step: "preferences"; model: string }
@@ -58,6 +59,7 @@ type OnboardingAction =
     }
   | { type: "show-origin-guidance" }
   | { type: "origin-guidance"; error: PublicErrorShape }
+  | { type: "cloud-signin-guidance"; error: PublicErrorShape }
   | { type: "models"; models: ModelInfo[] }
   | { type: "download"; progress: ModelDownloadEvent }
   | { type: "preferences"; model: string }
@@ -82,6 +84,7 @@ export function onboardingStepNumber(state: OnboardingState): number {
     case "checking-runtime":
     case "runtime-missing":
     case "origin-guidance":
+    case "cloud-signin-guidance":
     case "choosing-model":
     case "downloading":
       return 2;
@@ -135,6 +138,8 @@ function reduceOnboarding(
         : state;
     case "origin-guidance":
       return { step: "origin-guidance", error: action.error };
+    case "cloud-signin-guidance":
+      return { step: "cloud-signin-guidance", error: action.error };
     case "models":
       return { step: "choosing-model", models: action.models };
     case "download":
@@ -261,7 +266,10 @@ export function useOnboarding({
       switch (event.type) {
         case "runtime-result":
           if (event.health.available) {
-            send({ type: "list-models" });
+            send({
+              type: "list-models",
+              mode: preferencesRef.current.selectedProvider,
+            });
             return;
           }
           resumableCommandRef.current = undefined;
@@ -318,6 +326,10 @@ export function useOnboarding({
           return;
         case "onboarding-failed":
           resumableCommandRef.current = undefined;
+          if (event.error.code === "OLLAMA_SIGNIN_REQUIRED") {
+            dispatch({ type: "cloud-signin-guidance", error: event.error });
+            return;
+          }
           dispatch({ type: "failed", error: event.error });
       }
     },

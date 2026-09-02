@@ -2,6 +2,7 @@ import { PublicError } from "../../core/requests/public-error";
 import type { ModelConcurrencyGate } from "../../core/requests/model-concurrency-gate";
 import type { PortLike, TrustedPortSender } from "../../platform/messaging/port";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
+import type { SelectedProvider } from "../settings/settings";
 import type {
   DownloadableModelProvider,
   ModelInfo,
@@ -198,7 +199,10 @@ export class OnboardingService {
         post({ type: "runtime-result", health: await this.checkRuntime(signal) });
         return;
       case "list-models":
-        post({ type: "models-result", models: await this.listModels(signal) });
+        post({
+          type: "models-result",
+          models: await this.listModels(command.mode, signal),
+        });
         return;
       case "download-model":
         await this.download(command.model, signal, post);
@@ -234,8 +238,18 @@ export class OnboardingService {
     }
   }
 
-  private async listModels(signal: AbortSignal): Promise<ModelInfo[]> {
+  private async listModels(
+    mode: SelectedProvider,
+    signal: AbortSignal,
+  ): Promise<ModelInfo[]> {
     const models = await this.dependencies.provider.listModels(signal);
+    if (mode === "ollama-cloud" && !models.some((model) => model.origin === "cloud")) {
+      throw new PublicError(
+        "OLLAMA_SIGNIN_REQUIRED",
+        "No Ollama Cloud models are available. Run `ollama signin`, then pull a cloud model.",
+        true,
+      );
+    }
     return Promise.all(
       models.map(async (model) => {
         const details = await this.dependencies.provider.getModelDetails(

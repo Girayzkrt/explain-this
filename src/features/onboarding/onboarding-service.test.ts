@@ -280,6 +280,53 @@ describe("onboarding service", () => {
     ]);
   });
 
+  it("asks the reader to sign in when cloud mode finds no cloud model", async () => {
+    const harness = createHarness();
+    harness.provider.models = [
+      { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+    ];
+
+    harness.port.send({ type: "list-models", mode: "ollama-cloud" });
+    await settle();
+
+    expect(harness.port.posted).toEqual([
+      {
+        type: "onboarding-failed",
+        error: {
+          code: "OLLAMA_SIGNIN_REQUIRED",
+          message:
+            "No Ollama Cloud models are available. Run `ollama signin`, then pull a cloud model.",
+          recoverable: true,
+        },
+      },
+    ]);
+  });
+
+  it("lists every model with its origin intact when the reader is signed in", async () => {
+    const harness = createHarness();
+    harness.provider.models = [
+      { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+      { id: "gemma4:26b-cloud", displayName: "gemma4:26b-cloud", origin: "cloud" },
+    ];
+
+    harness.port.send({ type: "list-models", mode: "ollama-cloud" });
+    await settle();
+
+    expect(harness.port.posted).toEqual([
+      {
+        type: "models-result",
+        models: [
+          { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+          {
+            id: "gemma4:26b-cloud",
+            displayName: "gemma4:26b-cloud",
+            origin: "cloud",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("labels only explicit code-specialized model families or names", async () => {
     const harness = createHarness();
     harness.provider.models = [
@@ -294,7 +341,7 @@ describe("onboarding service", () => {
       origin: "local",
     });
 
-    harness.port.send({ type: "list-models" });
+    harness.port.send({ type: "list-models", mode: "ollama-local" });
     await settle();
 
     expect(harness.port.posted).toEqual([

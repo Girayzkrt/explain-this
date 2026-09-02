@@ -2,7 +2,9 @@ import { z } from "zod";
 import { PUBLIC_ERROR_CODES, PublicError } from "../../core/requests/public-error";
 import {
   ReadingPreferencesSchema,
+  SelectedProviderSchema,
   type ReadingPreferences,
+  type SelectedProvider,
 } from "../settings/settings";
 import type {
   ModelDownloadEvent,
@@ -20,7 +22,7 @@ export interface ReadinessResult {
 
 export type OnboardingCommand =
   | { type: "check-runtime" }
-  | { type: "list-models" }
+  | { type: "list-models"; mode: SelectedProvider }
   | { type: "download-model"; model: string }
   | { type: "cancel-download" }
   | { type: "run-readiness"; model: string; preferences: ReadingPreferences }
@@ -101,7 +103,7 @@ const ModelNameSchema = z.string().min(1).max(200);
 
 export const OnboardingCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("check-runtime") }).strict(),
-  z.object({ type: z.literal("list-models") }).strict(),
+  z.object({ type: z.literal("list-models"), mode: SelectedProviderSchema }).strict(),
   z.object({ type: z.literal("download-model"), model: ModelNameSchema }).strict(),
   z.object({ type: z.literal("cancel-download") }).strict(),
   z

@@ -212,6 +212,22 @@ function ActiveStep({
           onCheckAgain={controller.checkRuntime}
         />
       );
+    case "cloud-signin-guidance":
+      // Placeholder only — a later task replaces this with the real Ollama Cloud
+      // sign-in guidance screen. It exists so OptionsApp keeps compiling and the
+      // state machine remains reachable end to end.
+      return (
+        <StepFrame eyebrow="Step 2 of 4" heading="Sign in to Ollama Cloud">
+          <PublicErrorNotice error={state.error} />
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={controller.retry}
+          >
+            Check again
+          </button>
+        </StepFrame>
+      );
     case "choosing-model":
       return <ModelStep controller={controller} state={state} />;
     case "downloading":

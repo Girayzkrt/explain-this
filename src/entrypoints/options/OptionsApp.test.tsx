@@ -151,7 +151,10 @@ async function reachModelChoice(
       health: { available: true, status: models.length ? "ready" : "model-required" },
     });
   });
-  expect(harness.client.sent.at(-1)).toEqual({ type: "list-models" });
+  expect(harness.client.sent.at(-1)).toEqual({
+    type: "list-models",
+    mode: "ollama-local",
+  });
   act(() => harness.client.emit({ type: "models-result", models }));
   expect(screen.getByRole("heading", { name: /choose a local model/i })).toBeVisible();
 }

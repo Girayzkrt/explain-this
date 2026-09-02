@@ -26,6 +26,12 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
     explanation: "Ollama rejected the extension’s local request.",
     primaryAction: { intent: "show-origin-steps", label: "Show origin steps" },
   },
+  OLLAMA_SIGNIN_REQUIRED: {
+    title: "Sign in to Ollama Cloud",
+    explanation:
+      "No Ollama Cloud models are available yet. Run `ollama signin`, then pull a cloud model.",
+    primaryAction: { intent: "retry", label: "Check again" },
+  },
   NO_MODEL: {
     title: "Choose a local model",
     explanation: "Ollama is ready, but no model is selected for explanations.",

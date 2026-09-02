@@ -36,6 +36,12 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
     explanation: "The selected local model is no longer installed.",
     primaryAction: { intent: "choose-model", label: "Choose model" },
   },
+  CLOUD_MODEL_IN_LOCAL_MODE: {
+    title: "Cloud model selected in local mode",
+    explanation:
+      "The selected model runs in Ollama's cloud, but this computer-only mode was chosen. Pick a local model or switch to Ollama Cloud in Settings.",
+    primaryAction: { intent: "choose-model", label: "Choose model" },
+  },
   MODEL_DOWNLOAD_FAILED: {
     title: "Model download stopped",
     explanation: "The local model could not finish downloading.",

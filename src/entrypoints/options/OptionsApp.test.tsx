@@ -133,8 +133,11 @@ async function startRuntimeCheck(harness: ReturnType<typeof createHarness>) {
   await userEvent.click(
     await screen.findByRole("button", { name: /start local setup/i }),
   );
+  await userEvent.click(await screen.findByRole("button", { name: /run locally/i }));
   expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
-  expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+  await waitFor(() =>
+    expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" }),
+  );
 }
 
 async function reachModelChoice(
@@ -271,14 +274,14 @@ describe("options onboarding", () => {
   });
 
   // Setup was a one-way street: a wrong model or level could only be undone by finishing.
-  it("goes back from the model choice to the welcome step", async () => {
+  it("goes back from the model choice to the mode choice", async () => {
     const harness = createHarness();
     await reachModelChoice(harness);
 
     await userEvent.click(screen.getByRole("button", { name: /back/i }));
 
     expect(
-      screen.getByRole("heading", { name: /understand text locally/i }),
+      screen.getByRole("heading", { name: /choose how the model runs/i }),
     ).toBeVisible();
   });
 
@@ -650,7 +653,9 @@ describe("options onboarding", () => {
           return structuredClone(settings);
         },
         async update(patch) {
-          order.push(`persist:${String(patch.automaticToolbar)}`);
+          if (Object.hasOwn(patch, "automaticToolbar")) {
+            order.push(`persist:${String(patch.automaticToolbar)}`);
+          }
           settings.preferences = { ...settings.preferences, ...patch };
           return structuredClone(settings);
         },
@@ -698,7 +703,9 @@ describe("options onboarding", () => {
           return structuredClone(settings);
         },
         async update(patch) {
-          order.push(`persist:${String(patch.automaticToolbar)}`);
+          if (Object.hasOwn(patch, "automaticToolbar")) {
+            order.push(`persist:${String(patch.automaticToolbar)}`);
+          }
           settings.preferences = { ...settings.preferences, ...patch };
           return structuredClone(settings);
         },
@@ -742,7 +749,9 @@ describe("options onboarding", () => {
           return structuredClone(settings);
         },
         async update(patch) {
-          order.push(`persist:${String(patch.automaticToolbar)}`);
+          if (Object.hasOwn(patch, "automaticToolbar")) {
+            order.push(`persist:${String(patch.automaticToolbar)}`);
+          }
           settings.preferences = { ...settings.preferences, ...patch };
           return structuredClone(settings);
         },
@@ -953,7 +962,7 @@ describe("options onboarding", () => {
     );
     expect(completion).toMatchObject({ preferences: { blockedSites: [] } });
     expect(JSON.stringify(harness.updates)).not.toMatch(
-      /prompt|selected|readiness|output/i,
+      /prompt|selectedText|selected text|readiness|output/i,
     );
 
     cleanup();

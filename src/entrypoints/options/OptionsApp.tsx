@@ -133,6 +133,31 @@ function ActiveStep({
           </button>
         </StepFrame>
       );
+    case "choosing-mode":
+      // Placeholder only — a later task replaces this with the real mode-choice
+      // screen. It exists so OptionsApp keeps compiling and the state machine
+      // remains reachable end to end.
+      return (
+        <StepFrame eyebrow="Step 2 of 4" heading="Choose how the model runs">
+          <p>Run the model on this computer, or use Ollama Cloud.</p>
+          <div className="actions">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={() => controller.chooseMode("ollama-local")}
+            >
+              Run locally
+            </button>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => controller.chooseMode("ollama-cloud")}
+            >
+              Use Ollama Cloud
+            </button>
+          </div>
+        </StepFrame>
+      );
     case "checking-runtime":
       return (
         <StepFrame eyebrow="Step 2 of 4" heading="Checking Ollama">

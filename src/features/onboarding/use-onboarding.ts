@@ -10,6 +10,7 @@ import { resolveLanguageName } from "../settings/languages";
 import {
   createDefaultPreferences,
   type ReadingPreferences,
+  type SelectedProvider,
 } from "../settings/settings";
 import type { OnboardingCommand, OnboardingEvent, ReadinessResult } from "./contracts";
 
@@ -23,6 +24,7 @@ export interface OnboardingClientConnection {
 export type OnboardingState =
   | { step: "loading" }
   | { step: "welcome" }
+  | { step: "choosing-mode" }
   | { step: "checking-runtime" }
   | {
       step: "runtime-missing";
@@ -47,6 +49,7 @@ export type OnboardingState =
 type OnboardingAction =
   | { type: "hydrated"; completed: boolean }
   | { type: "check-runtime" }
+  | { type: "mode"; mode: SelectedProvider }
   | {
       type: "runtime-missing";
       error: PublicErrorShape;
@@ -74,6 +77,7 @@ export function onboardingStepNumber(state: OnboardingState): number {
     case "loading":
     case "welcome":
       return 1;
+    case "choosing-mode":
     case "checking-runtime":
     case "runtime-missing":
     case "origin-guidance":
@@ -101,11 +105,19 @@ function reduceOnboarding(
     case "hydrated":
       return { step: action.completed ? "settings" : "welcome" };
     case "check-runtime":
+      // From welcome, only advance to the mode choice — the runtime probe itself
+      // waits until chooseMode has persisted which mode to probe. Every other
+      // caller (origin-guidance retry, settings' "run setup again") keeps probing
+      // immediately, as before.
+      return state.step === "welcome"
+        ? { step: "choosing-mode" }
+        : { step: "checking-runtime" };
+    case "mode":
       return { step: "checking-runtime" };
     case "back":
       switch (state.step) {
         case "choosing-model":
-          return { step: "welcome" };
+          return { step: "choosing-mode" };
         case "preferences":
           return { step: "choosing-model", models: action.models };
         case "complete":
@@ -167,6 +179,7 @@ export interface OnboardingController {
   preferences: ReadingPreferences;
   showOriginGuidance(): void;
   checkRuntime(): void;
+  chooseMode(mode: SelectedProvider): void;
   goBack(): void;
   downloadModel(model: string): void;
   useInstalledModel(model: string): void;
@@ -331,8 +344,12 @@ export function useOnboarding({
 
   const checkRuntime = useCallback((): void => {
     dispatch({ type: "check-runtime" });
+    // From welcome this only advances to the mode choice (handled in the
+    // reducer); probing the runtime before a mode is chosen would check the
+    // wrong provider. Every other caller still probes immediately.
+    if (state.step === "welcome") return;
     send({ type: "check-runtime" });
-  }, [send]);
+  }, [send, state.step]);
 
   const goBack = useCallback((): void => {
     dispatch({
@@ -425,6 +442,21 @@ export function useOnboarding({
     [settingsRepository, setChosenPreferences],
   );
 
+  const chooseMode = useCallback(
+    (mode: SelectedProvider): void => {
+      dispatch({ type: "mode", mode });
+      // Persist before probing so the runtime check reads the mode just chosen,
+      // not whatever was stored before. A persistence failure must not strand
+      // the reader on the checking-runtime screen, so the probe still runs.
+      void updateSettings({ selectedProvider: mode })
+        .catch(() => undefined)
+        .then(() => {
+          send({ type: "check-runtime" });
+        });
+    },
+    [send, updateSettings],
+  );
+
   const retry = useCallback((): void => {
     const command = retryCommandRef.current;
     if (!command) return;
@@ -459,6 +491,7 @@ export function useOnboarding({
     preferences,
     showOriginGuidance,
     checkRuntime,
+    chooseMode,
     goBack,
     downloadModel,
     useInstalledModel,

@@ -39,7 +39,7 @@ control — is in [`docs/privacy.md`](docs/privacy.md).
 | Browser          | Chrome or a Chromium browser, version 116 or later            |
 | Operating system | Windows, macOS, or Linux                                      |
 | Runtime          | [Ollama](https://ollama.com), **installed separately by you** |
-| Model            | `qwen2.5:3b-instruct`, about 1.9 GB on disk                   |
+| Model            | `gemma3:4b`, about 3.3 GB on disk                             |
 | Hardware         | Works without a GPU; a GPU makes it considerably faster       |
 
 **Ollama is not bundled and is not installed for you.** This extension will never download,
@@ -51,7 +51,7 @@ start, or update it.
 2. Pull the model:
 
    ```bash
-   ollama pull qwen2.5:3b-instruct
+   ollama pull gemma3:4b
    ```
 
 3. Install the extension, then open its options page and follow setup. It checks that
@@ -61,8 +61,16 @@ Setup never sends page text. The readiness check only lists your local models.
 
 ### Model choice and performance
 
-`qwen2.5:3b-instruct` is the default because it answers directly and fits comfortably in
-the response budget.
+`gemma3:4b` is the default because it answers directly, fits the response budget, and is
+the only model measured here that stays usable across the European languages this
+extension targets. Smaller alternatives such as `qwen2.5:3b-instruct` are faster and half
+the size, but in evaluation they produced invented words rather than sentences in Dutch,
+Polish, Swedish and Greek.
+
+Translation is never authoritative. Every model measured here, `gemma3:4b` included,
+occasionally alters numbers or drops a negation while reading fluently — the kind of error
+you cannot see if you do not know the source language. Check anything legal, medical, or
+financial against the original.
 
 Avoid **reasoning models** such as `qwen3:4b` for this job. They narrate their own
 deliberation before answering and are cut off by the output limit before reaching the

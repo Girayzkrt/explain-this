@@ -7,5 +7,5 @@ export const E2E_STREAM_TIMEOUT_MS =
   typeof __EXPLAIN_THIS_E2E_STREAM_TIMEOUT_MS__ === "undefined"
     ? undefined
     : __EXPLAIN_THIS_E2E_STREAM_TIMEOUT_MS__;
-export const RECOMMENDED_MODEL = "qwen2.5:3b-instruct";
+export const RECOMMENDED_MODEL = "gemma3:4b";
 export const ONBOARDING_VERSION = 1;

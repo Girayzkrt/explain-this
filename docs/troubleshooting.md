@@ -26,7 +26,7 @@ installs, or downloads anything on its own.
 | Code                    | What you see                  | What to check                                                                                                                     |
 | ----------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `NO_MODEL`              | Choose a local model          | No model is selected. Open Settings and pick one.                                                                                 |
-| `MODEL_NOT_FOUND`       | Selected model is unavailable | The selected model is no longer installed. Reinstall it with `ollama pull qwen2.5:3b-instruct`, or choose another in Settings.    |
+| `MODEL_NOT_FOUND`       | Selected model is unavailable | The selected model is no longer installed. Reinstall it with `ollama pull gemma3:4b`, or choose another in Settings.              |
 | `MODEL_DOWNLOAD_FAILED` | Model download stopped        | The download did not finish. Check disk space and connectivity, then retry. You can also pull it yourself and return to Settings. |
 
 ## Generation

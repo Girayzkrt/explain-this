@@ -422,6 +422,25 @@ progress::-webkit-progress-value {
   border-bottom: 1px solid var(--line);
 }
 
+/* Local and cloud carry equal visual weight, so each mode is its own bordered
+   card rather than one being highlighted the way .model-recommendation is. */
+.mode-option {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.4rem 1.5rem 1.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.mode-option svg {
+  color: var(--cobalt-dark);
+}
+
+.mode-option p {
+  margin: 0;
+  color: var(--slate);
+}
+
 .model-recommendation p:not(.field-label),
 .field-help,
 .model-warning {

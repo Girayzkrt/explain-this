@@ -1,4 +1,13 @@
-import { ArrowLeft, Check, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Cloud,
+  Download,
+  Laptop,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
@@ -134,30 +143,7 @@ function ActiveStep({
         </StepFrame>
       );
     case "choosing-mode":
-      // Placeholder only — a later task replaces this with the real mode-choice
-      // screen. It exists so OptionsApp keeps compiling and the state machine
-      // remains reachable end to end.
-      return (
-        <StepFrame eyebrow="Step 2 of 4" heading="Choose how the model runs">
-          <p>Run the model on this computer, or use Ollama Cloud.</p>
-          <div className="actions">
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={() => controller.chooseMode("ollama-local")}
-            >
-              Run locally
-            </button>
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => controller.chooseMode("ollama-cloud")}
-            >
-              Use Ollama Cloud
-            </button>
-          </div>
-        </StepFrame>
-      );
+      return <ModeStep controller={controller} />;
     case "checking-runtime":
       return (
         <StepFrame eyebrow="Step 2 of 4" heading="Checking Ollama">
@@ -213,21 +199,7 @@ function ActiveStep({
         />
       );
     case "cloud-signin-guidance":
-      // Placeholder only — a later task replaces this with the real Ollama Cloud
-      // sign-in guidance screen. It exists so OptionsApp keeps compiling and the
-      // state machine remains reachable end to end.
-      return (
-        <StepFrame eyebrow="Step 2 of 4" heading="Sign in to Ollama Cloud">
-          <PublicErrorNotice error={state.error} />
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={controller.retry}
-          >
-            Check again
-          </button>
-        </StepFrame>
-      );
+      return <CloudSigninStep error={state.error} onCheckAgain={controller.retry} />;
     case "choosing-model":
       return <ModelStep controller={controller} state={state} />;
     case "downloading":
@@ -336,6 +308,70 @@ function OriginStep({
             )}
           </li>
         ))}
+      </ol>
+      <button className="button button-primary" type="button" onClick={onCheckAgain}>
+        Check again
+      </button>
+    </StepFrame>
+  );
+}
+
+function ModeStep({ controller }: { controller: OnboardingController }) {
+  return (
+    <StepFrame eyebrow="Step 2 of 4" heading="Choose how it runs">
+      <div className="mode-option">
+        <Laptop size={20} strokeWidth={1.9} aria-hidden="true" focusable="false" />
+        <h3>On this computer</h3>
+        <p>
+          Your selected text does not leave your machine. Requires Ollama and a model,
+          about 3.3 GB.
+        </p>
+        <button
+          className="button button-primary"
+          type="button"
+          onClick={() => controller.chooseMode("ollama-local")}
+        >
+          Use this computer
+        </button>
+      </div>
+
+      <div className="mode-option">
+        <Cloud size={20} strokeWidth={1.9} aria-hidden="true" focusable="false" />
+        <h3>Ollama Cloud</h3>
+        <p>
+          Your selected text is sent to Ollama&apos;s servers. Ollama states that it
+          does not retain your data. Runs larger models with nothing to download.
+        </p>
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={() => controller.chooseMode("ollama-cloud")}
+        >
+          Use Ollama Cloud
+        </button>
+      </div>
+    </StepFrame>
+  );
+}
+
+function CloudSigninStep({
+  error,
+  onCheckAgain,
+}: {
+  error: Extract<OnboardingState, { step: "cloud-signin-guidance" }>["error"];
+  onCheckAgain(): void;
+}) {
+  return (
+    <StepFrame eyebrow="Step 2 of 4" heading="Sign in to Ollama Cloud">
+      <PublicErrorNotice error={error} />
+      <p>Run these commands, then check again.</p>
+      <ol className="guidance-list">
+        <li>
+          <code className="code-block">ollama signin</code>
+        </li>
+        <li>
+          <code className="code-block">ollama pull gpt-oss:120b-cloud</code>
+        </li>
       </ol>
       <button className="button button-primary" type="button" onClick={onCheckAgain}>
         Check again

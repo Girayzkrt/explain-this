@@ -133,7 +133,9 @@ async function startRuntimeCheck(harness: ReturnType<typeof createHarness>) {
   await userEvent.click(
     await screen.findByRole("button", { name: /start local setup/i }),
   );
-  await userEvent.click(await screen.findByRole("button", { name: /run locally/i }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: /use this computer/i }),
+  );
   expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
   await waitFor(() =>
     expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" }),
@@ -283,9 +285,7 @@ describe("options onboarding", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /back/i }));
 
-    expect(
-      screen.getByRole("heading", { name: /choose how the model runs/i }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: /choose how it runs/i })).toBeVisible();
   });
 
   it("goes back from preferences to the model choice", async () => {
@@ -505,6 +505,76 @@ describe("options onboarding", () => {
     expect(
       screen.getByText("chrome-extension://runtime-id", { selector: "code" }),
     ).toBeVisible();
+  });
+
+  it("says plainly what each mode does with the reader's text", async () => {
+    createHarness();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /start local setup/i }),
+    );
+
+    expect(screen.getByText(/does not leave your machine/i)).toBeVisible();
+    expect(screen.getByText(/sent to Ollama's servers/i)).toBeVisible();
+    // Non-retention is Ollama's claim, not a promise this project can make.
+    expect(screen.getByText(/Ollama states/i)).toBeVisible();
+  });
+
+  it("offers the on-this-computer mode first", async () => {
+    createHarness();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /start local setup/i }),
+    );
+
+    const headings = screen.getAllByRole("heading", { level: 3 });
+    expect(headings[0]).toHaveTextContent(/On this computer/i);
+  });
+
+  it("shows both cloud sign-in commands and retries list-models with the mode intact", async () => {
+    const harness = createHarness();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /start local setup/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /use ollama cloud/i }),
+    );
+    expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+
+    act(() => {
+      harness.client.emit({
+        type: "runtime-result",
+        health: { available: true, status: "ready" },
+      });
+    });
+    expect(harness.client.sent.at(-1)).toEqual({
+      type: "list-models",
+      mode: "ollama-cloud",
+    });
+
+    act(() => {
+      harness.client.emit({
+        type: "onboarding-failed",
+        error: {
+          code: "OLLAMA_SIGNIN_REQUIRED",
+          message:
+            "No Ollama Cloud models are available. Run `ollama signin`, then pull a cloud model.",
+          recoverable: true,
+        },
+      });
+    });
+
+    expect(
+      screen.getByRole("heading", { name: /sign in to ollama cloud/i }),
+    ).toBeVisible();
+    expect(screen.getByText("ollama signin", { selector: "code" })).toBeVisible();
+    expect(screen.getByText(/^ollama pull /, { selector: "code" })).toBeVisible();
+
+    const retryButton = screen.getByRole("button", { name: /check again/i });
+    expect(retryButton).toBeVisible();
+    await userEvent.click(retryButton);
+    expect(harness.client.sent.at(-1)).toEqual({
+      type: "list-models",
+      mode: "ollama-cloud",
+    });
   });
 
   it("shows the recommended model name and size before explicit download confirmation", async () => {

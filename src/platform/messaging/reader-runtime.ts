@@ -5,6 +5,7 @@ import type { SettingsRepository } from "../storage/settings-repository";
 const ReaderRuntimeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("get-reader-config") }).strict(),
   z.object({ type: z.literal("open-side-panel") }).strict(),
+  z.object({ type: z.literal("open-options-page") }).strict(),
 ]);
 
 const ReaderRuntimeConfigSchema = z
@@ -27,6 +28,7 @@ export interface ReaderRuntimeDependencies {
   extensionId: string;
   settingsRepository: Pick<SettingsRepository, "get">;
   openSidePanel(tabId: number): Promise<void>;
+  openOptionsPage(): Promise<void>;
 }
 
 export function parseReaderRuntimeMessage(input: unknown): ReaderRuntimeMessage {
@@ -63,6 +65,10 @@ export function createReaderRuntimeHandler(dependencies: ReaderRuntimeDependenci
 
     if (message.type === "open-side-panel") {
       await dependencies.openSidePanel(trusted.tabId);
+      return undefined;
+    }
+    if (message.type === "open-options-page") {
+      await dependencies.openOptionsPage();
       return undefined;
     }
 

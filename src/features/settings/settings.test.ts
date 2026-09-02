@@ -13,12 +13,12 @@ describe("reading settings", () => {
       preserveEnglishTerms: true,
       includeNearbyContext: false,
       selectedProvider: "ollama",
-      selectedModel: "qwen3:4b",
+      selectedModel: "qwen2.5:3b-instruct",
       automaticToolbar: false,
       blockedSites: [],
     });
     expect(createDefaultModelProfile()).toEqual({
-      model: "qwen3:4b",
+      model: "qwen2.5:3b-instruct",
       numCtx: 4096,
       think: false,
       keepAlive: "5m",

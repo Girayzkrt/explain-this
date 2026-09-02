@@ -20,7 +20,9 @@ describe("fixture page server", () => {
     for (const page of ["normal.html", "hostile.html", "multilingual.html"] as const) {
       const response = await fetch(server.url(page));
       expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
-      await expect(response.text()).resolves.toContain(`data-fixture="${page.slice(0, -5)}"`);
+      await expect(response.text()).resolves.toContain(
+        `data-fixture="${page.slice(0, -5)}"`,
+      );
     }
   });
 
@@ -40,9 +42,9 @@ describe("fixture page server", () => {
     );
     expect(content["hostile.html"]).toMatch(/font-family: fantasy|z-index: -999/);
     expect(content["multilingual.html"]).toMatch(/光合成|Fotosynthese/);
-    expect(pages.every(([, html]) => !/\b(?:src|href)\s*=|https?:\/\//i.test(html))).toBe(
-      true,
-    );
+    expect(
+      pages.every(([, html]) => !/\b(?:src|href)\s*=|https?:\/\//i.test(html)),
+    ).toBe(true);
   });
 
   it.each([

@@ -52,6 +52,7 @@ export const ollamaChatChunkSchema = z
     total_duration: z.number().nonnegative().optional(),
     prompt_eval_count: z.number().int().nonnegative().optional(),
     eval_count: z.number().int().nonnegative().optional(),
+    done_reason: z.string().optional(),
   })
   .passthrough();
 

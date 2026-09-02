@@ -13,6 +13,9 @@ describe("reader runtime boundary", () => {
     expect(parseReaderRuntimeMessage({ type: "open-side-panel" })).toEqual({
       type: "open-side-panel",
     });
+    expect(parseReaderRuntimeMessage({ type: "open-options-page" })).toEqual({
+      type: "open-options-page",
+    });
     expect(() =>
       parseReaderRuntimeMessage({
         type: "get-reader-config",
@@ -22,10 +25,14 @@ describe("reader runtime boundary", () => {
     expect(() =>
       parseReaderRuntimeMessage({ type: "open-side-panel", tabId: 9 }),
     ).toThrow();
+    expect(() =>
+      parseReaderRuntimeMessage({ type: "open-options-page", tabId: 9 }),
+    ).toThrow();
   });
 
   it("returns only needed booleans to a trusted HTTP page sender", async () => {
     const opened: number[] = [];
+    const optionsOpened: boolean[] = [];
     const handler = createReaderRuntimeHandler({
       extensionId: "extension-id",
       settingsRepository: {
@@ -45,6 +52,9 @@ describe("reader runtime boundary", () => {
       },
       async openSidePanel(tabId) {
         opened.push(tabId);
+      },
+      async openOptionsPage() {
+        optionsOpened.push(true);
       },
     });
 
@@ -72,6 +82,14 @@ describe("reader runtime boundary", () => {
       },
     );
     expect(opened).toEqual([7]);
+    await handler(
+      { type: "open-options-page" },
+      {
+        id: "extension-id",
+        tab: { id: 7, url: "https://reader.example/article" },
+      },
+    );
+    expect(optionsOpened).toEqual([true]);
   });
 
   it.each([
@@ -87,6 +105,7 @@ describe("reader runtime boundary", () => {
         },
       },
       async openSidePanel() {},
+      async openOptionsPage() {},
     });
     await expect(handler({ type: "get-reader-config" }, sender)).rejects.toThrow();
   });

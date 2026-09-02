@@ -352,7 +352,7 @@ function ModelStep({
         <p className="field-label">Recommended for general reading</p>
         <h3>{RECOMMENDED_MODEL}</h3>
         <p>
-          Approximately 2.5 GB. Multilingual and balanced for everyday explanations on
+          Approximately 1.9 GB. Multilingual and balanced for everyday explanations on
           desktop-class computers.
         </p>
         <button
@@ -366,7 +366,9 @@ function ModelStep({
             }
           }}
         >
-          {recommendationInstalled ? "Use qwen3:4b" : "Download qwen3:4b"}
+          {recommendationInstalled
+            ? `Use ${RECOMMENDED_MODEL}`
+            : `Download ${RECOMMENDED_MODEL}`}
         </button>
       </div>
 

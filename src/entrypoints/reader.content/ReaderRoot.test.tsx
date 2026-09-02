@@ -60,6 +60,7 @@ function createUiHarness(includeNearbyContext = false) {
   const restoreFocus = vi.fn();
   const writeClipboard = vi.fn(async () => undefined);
   const openSidePanel = vi.fn(async () => undefined);
+  const openOptionsPage = vi.fn(async () => undefined);
   const dependencies: ReaderControllerDependencies = {
     captureSelection: () => selected,
     getReaderConfig: async () => ({
@@ -82,6 +83,7 @@ function createUiHarness(includeNearbyContext = false) {
     restoreFocus,
     writeClipboard,
     openSidePanel,
+    openOptionsPage,
   };
   const controller = new ReaderController(dependencies);
   render(<ReaderRoot controller={controller} />);
@@ -91,6 +93,7 @@ function createUiHarness(includeNearbyContext = false) {
     restoreFocus,
     writeClipboard,
     openSidePanel,
+    openOptionsPage,
     async openActions() {
       await act(() => controller.selectionCompleted());
     },
@@ -128,7 +131,7 @@ describe("reader in-page UI", () => {
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Explain",
       "Simplify",
-      "Translate",
+      "Translate (experimental)",
       "Example",
     ]);
     screen.getByRole("button", { name: "Explain" }).focus();
@@ -157,6 +160,24 @@ describe("reader in-page UI", () => {
       type: "cancel-request",
       requestId: REQUEST_ID,
     });
+  });
+
+  it("does not let response-control mouseup restart the page selection flow", async () => {
+    const harness = createUiHarness();
+    await harness.openActions();
+    harness.start();
+    const pageMouseUp = vi.fn();
+    document.addEventListener("mouseup", pageMouseUp);
+
+    try {
+      screen
+        .getByRole("button", { name: /stop/i })
+        .dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    } finally {
+      document.removeEventListener("mouseup", pageMouseUp);
+    }
+
+    expect(pageMouseUp).not.toHaveBeenCalled();
   });
 
   it("renders links as inert text and never mounts raw model HTML", async () => {
@@ -209,6 +230,27 @@ describe("reader in-page UI", () => {
       /side panel is unavailable in this browser/i,
     );
     expect(screen.getByRole("alert")).not.toHaveTextContent(/sensitive/i);
+  });
+
+  it("routes setup-related model failures to the trusted options page", async () => {
+    const harness = createUiHarness();
+    await harness.openActions();
+    harness.start();
+    harness.connection.emit({
+      type: "stream-event",
+      event: {
+        type: "failed",
+        requestId: REQUEST_ID,
+        error: {
+          code: "OLLAMA_UNREACHABLE",
+          message: "Ollama is not reachable.",
+          recoverable: true,
+        },
+      },
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Open setup" }));
+    expect(harness.openOptionsPage).toHaveBeenCalledOnce();
   });
 
   it("marks interrupted output incomplete and exposes recoverable Retry", async () => {

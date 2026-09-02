@@ -36,7 +36,9 @@ export const readerBrowserApi: ReaderBrowserApi = {
   },
 
   async executeReader(tabId) {
-    const executeScript = browser.scripting.executeScript as unknown as (injection: {
+    const executeScript = browser.scripting.executeScript.bind(
+      browser.scripting,
+    ) as unknown as (injection: {
       target: { tabId: number };
       files: string[];
       world: "ISOLATED";

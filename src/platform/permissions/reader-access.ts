@@ -123,10 +123,27 @@ export class ReaderAccessController implements ReaderAccessService {
     }
 
     let removalFailure: { error: unknown } | undefined;
+    let grantedOrigins: string[];
     try {
-      await this.browser.removeOrigins([...AUTOMATIC_READER_ORIGINS]);
-    } catch (error: unknown) {
-      removalFailure = { error };
+      const grants = await Promise.all(
+        AUTOMATIC_READER_ORIGINS.map(async (origin) => ({
+          origin,
+          granted: await this.browser.containsOrigins([origin]),
+        })),
+      );
+      grantedOrigins = grants
+        .filter(({ granted }) => granted)
+        .map(({ origin }) => origin);
+    } catch {
+      // Fall through to the existing conservative removal attempt.
+      grantedOrigins = [...AUTOMATIC_READER_ORIGINS];
+    }
+    if (grantedOrigins.length > 0) {
+      try {
+        await this.browser.removeOrigins(grantedOrigins);
+      } catch (error: unknown) {
+        removalFailure = { error };
+      }
     }
 
     if (unregistrationFailure && removalFailure) {

@@ -35,14 +35,17 @@ describe("reading request schema", () => {
   });
 
   it("rejects an empty selection", () => {
-    expect(() =>
-      validateReadingRequest({ ...validRequest, selection: "" }),
-    ).toThrow(PublicError);
+    expect(() => validateReadingRequest({ ...validRequest, selection: "" })).toThrow(
+      PublicError,
+    );
   });
 
   it("rejects arbitrary request properties", () => {
     expect(() =>
-      validateReadingRequest({ ...validRequest, providerEndpoint: "https://example.test" }),
+      validateReadingRequest({
+        ...validRequest,
+        providerEndpoint: "https://example.test",
+      }),
     ).toThrow(PublicError);
   });
 
@@ -79,7 +82,10 @@ describe("reading request schema", () => {
       validateReadingRequest({ ...validRequest, followUpIntent: "why" }),
     ).toThrow(PublicError);
     expect(() =>
-      validateReadingRequest({ ...validRequest, previousAnswer: "Because tasks share time." }),
+      validateReadingRequest({
+        ...validRequest,
+        previousAnswer: "Because tasks share time.",
+      }),
     ).toThrow(PublicError);
   });
 });

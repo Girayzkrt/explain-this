@@ -4,7 +4,7 @@ import type { KeyboardEvent } from "react";
 const actions: ReadonlyArray<{ action: ReadingAction; label: string }> = [
   { action: "explain", label: "Explain" },
   { action: "simplify", label: "Simplify" },
-  { action: "translate", label: "Translate" },
+  { action: "translate", label: "Translate (experimental)" },
   { action: "example", label: "Example" },
 ];
 
@@ -50,6 +50,7 @@ export function ActionToolbar({ onAction }: ActionToolbarProps) {
           className="reader-toolbar-button"
           key={action}
           type="button"
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => onAction(action)}
         >
           {label}

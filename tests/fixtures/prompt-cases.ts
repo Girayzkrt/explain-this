@@ -13,7 +13,7 @@ export const basePromptRequest: ReadingRequest = {
     preserveEnglishTerms: false,
     includeNearbyContext: false,
     selectedProvider: "ollama",
-    selectedModel: "qwen3:4b",
+    selectedModel: "qwen2.5:3b-instruct",
     automaticToolbar: false,
     blockedSites: [],
   },

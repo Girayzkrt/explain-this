@@ -11,6 +11,9 @@ export interface ResponseCardProps {
   onRetry(): void;
   onCopy(): void;
   onOpenSidePanel(): void;
+  onOpenSetup(): void;
+  onChooseModel(): void;
+  onShowOriginSteps(): void;
   onFollowUp(intent: FollowUpIntent): void;
   onClose(): void;
   sidePanelError?: string;
@@ -19,7 +22,7 @@ export interface ResponseCardProps {
 const actionLabels = {
   explain: "Explain",
   simplify: "Simplify",
-  translate: "Translate",
+  translate: "Translate (experimental)",
   example: "Example",
 } as const;
 
@@ -40,6 +43,9 @@ export function ResponseCard({
   onRetry,
   onCopy,
   onOpenSidePanel,
+  onOpenSetup,
+  onChooseModel,
+  onShowOriginSteps,
   onFollowUp,
   onClose,
   sidePanelError,
@@ -80,6 +86,9 @@ export function ResponseCard({
         <PublicErrorNotice
           error={state.error}
           onRetry={onRetry}
+          onOpenSetup={onOpenSetup}
+          onChooseModel={onChooseModel}
+          onShowOriginSteps={onShowOriginSteps}
           onDismiss={onClose}
           onSelectLessText={onClose}
         />

@@ -348,6 +348,10 @@ export class RequestCoordinator {
     if (replacedActive) {
       this.active = undefined;
       replacedActive.controller.abort();
+      this.post(replacedActive.port, {
+        type: "stream-event",
+        event: { type: "cancelled", requestId: replacedActive.requestId },
+      });
       await this.removeStoredIdentity(replacedActive);
       const replacedOwner = this.tabOwnership.get(replacedActive.tabId);
       if (replacedOwner?.requestId === replacedActive.requestId) {

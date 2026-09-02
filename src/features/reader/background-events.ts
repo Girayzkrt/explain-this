@@ -101,7 +101,7 @@ const menuItems: readonly ContextMenuCreateData[] = [
   {
     id: "translate",
     parentId: MENU_PARENT_ID,
-    title: "Translate",
+    title: "Translate (experimental)",
     contexts: ["selection"],
   },
   {

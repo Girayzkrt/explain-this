@@ -32,7 +32,7 @@ import {
   initializeStorageAccess,
 } from "../platform/storage/storage-area";
 import { OllamaProvider } from "../providers/ollama/ollama-provider";
-import { OLLAMA_BASE_URL } from "../shared/constants";
+import { E2E_STREAM_TIMEOUT_MS, OLLAMA_BASE_URL } from "../shared/constants";
 
 const STORAGE_UNAVAILABLE = new Error("Trusted extension storage is unavailable.");
 
@@ -98,7 +98,15 @@ function createProductionBackgroundDependencies(
     storageReadiness,
   );
   const readerAccess = new ReaderAccessController(readerBrowserApi);
-  const provider = new OllamaProvider({ baseUrl: OLLAMA_BASE_URL });
+  const provider = new OllamaProvider({
+    baseUrl: OLLAMA_BASE_URL,
+    ...(E2E_STREAM_TIMEOUT_MS === undefined
+      ? {}
+      : {
+          firstTokenTimeoutMs: E2E_STREAM_TIMEOUT_MS,
+          idleTimeoutMs: E2E_STREAM_TIMEOUT_MS,
+        }),
+  });
   const modelGate = new ModelConcurrencyGate();
   const coordinator = new RequestCoordinator({
     provider,
@@ -148,6 +156,46 @@ export default defineBackground(() => {
   const dependencies = createProductionBackgroundDependencies(storageReadiness);
   const handlers = createBackgroundHandlers(dependencies);
 
+  if (__EXPLAIN_THIS_E2E_READER_HOOK_NAME__) {
+    const statusName = `${__EXPLAIN_THIS_E2E_READER_HOOK_NAME__}_STATUS`;
+    const status: {
+      state: "idle" | "pending" | "complete" | "error";
+      error?: { name: string; message: string };
+    } = { state: "idle" };
+    Object.defineProperty(globalThis, statusName, {
+      configurable: false,
+      enumerable: false,
+      value: status,
+      writable: false,
+    });
+    Object.defineProperty(globalThis, __EXPLAIN_THIS_E2E_READER_HOOK_NAME__, {
+      configurable: false,
+      enumerable: false,
+      value: () => {
+        status.state = "pending";
+        delete status.error;
+        setTimeout(() => {
+          void handlers.onCommand("explain-selection").then(
+            () => {
+              status.state = "complete";
+            },
+            (error: unknown) => {
+              status.state = "error";
+              status.error = {
+                name: error instanceof Error ? error.name : "Error",
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "The e2e reader hook failed.",
+              };
+            },
+          );
+        }, 0);
+      },
+      writable: false,
+    });
+  }
+
   browser.runtime.onInstalled.addListener(handlers.onInstalled);
   browser.contextMenus.onClicked.addListener(handlers.onContextMenuClick);
   browser.commands.onCommand.addListener(handlers.onCommand);
@@ -156,13 +204,18 @@ export default defineBackground(() => {
     extensionId: browser.runtime.id,
     settingsRepository: dependencies.settingsRepository,
     openSidePanel: (tabId) => browser.sidePanel.open({ tabId }),
+    openOptionsPage: dependencies.runtime.openOptionsPage,
   });
   browser.runtime.onMessage.addListener((message, sender) => {
     const type =
       typeof message === "object" && message !== null && "type" in message
         ? message.type
         : undefined;
-    if (type !== "get-reader-config" && type !== "open-side-panel") {
+    if (
+      type !== "get-reader-config" &&
+      type !== "open-side-panel" &&
+      type !== "open-options-page"
+    ) {
       return undefined;
     }
     return readerRuntimeHandler(message, sender as ReaderRuntimeSender);

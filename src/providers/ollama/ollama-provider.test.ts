@@ -62,9 +62,25 @@ async function collect<T>(events: AsyncIterable<T>): Promise<T[]> {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("OllamaProvider", () => {
+  it("calls the default browser fetch with the global receiver", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async function fetchWithGlobalReceiver(this: unknown): Promise<Response> {
+        if (this !== globalThis) throw new TypeError("Incorrect fetch receiver.");
+        return jsonResponse({ models: [] });
+      },
+    );
+    const provider = createOllamaProvider({ baseUrl: "http://localhost:11434" });
+
+    await expect(provider.checkHealth(new AbortController().signal)).resolves.toEqual({
+      available: true,
+    });
+  });
+
   it("maps installed Ollama tags to provider-neutral model information", async () => {
     const fetchImpl: typeof fetch = async (input) => {
       expect(String(input)).toBe("http://127.0.0.1:11434/api/tags");
@@ -296,6 +312,7 @@ describe("OllamaProvider", () => {
             total_duration: 1_500_000_000,
             prompt_eval_count: 21,
             eval_count: 8,
+            done_reason: "length",
           },
         ]),
     });
@@ -311,7 +328,12 @@ describe("OllamaProvider", () => {
       {
         type: "completed",
         requestId: "request-1",
-        metrics: { inputTokens: 21, outputTokens: 8, durationMs: 1500 },
+        metrics: {
+          inputTokens: 21,
+          outputTokens: 8,
+          durationMs: 1500,
+          finishReason: "length",
+        },
       },
     ]);
     expect(JSON.stringify(events)).not.toContain("secret");
@@ -502,6 +524,43 @@ describe("OllamaProvider", () => {
     });
   });
 
+  it("uses one cumulative first-token deadline across headers and body", async () => {
+    vi.useFakeTimers();
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        return openNdjsonResponse([], () => undefined);
+      },
+      firstTokenTimeoutMs: 50,
+      idleTimeoutMs: 500,
+      overallTimeoutMs: 1000,
+    });
+    const events = provider.streamChat(
+      "request-cumulative",
+      chatRequest,
+      new AbortController().signal,
+    );
+    const iterator = events[Symbol.asyncIterator]();
+
+    await iterator.next();
+    const startedAt = Date.now();
+    let settledAt: number | undefined;
+    const pending = iterator.next().then((result) => {
+      settledAt = Date.now();
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(91);
+
+    await expect(pending).resolves.toMatchObject({
+      value: {
+        type: "failed",
+        error: { code: "FIRST_TOKEN_TIMEOUT" },
+      },
+    });
+    expect(settledAt).toBeLessThanOrEqual(startedAt + 51);
+  });
+
   it("yields STREAM_IDLE_TIMEOUT when a later chunk stalls", async () => {
     vi.useFakeTimers();
     const provider = createOllamaProvider({
@@ -566,5 +625,54 @@ describe("OllamaProvider", () => {
     await vi.advanceTimersByTimeAsync(26);
 
     await expectation;
+  });
+  // Ollama withholds response headers until the model emits its first token, so the
+  // connection budget must not cover generation latency. Applying it there reports
+  // CONNECTION_TIMEOUT, which onboarding maps to OLLAMA_UNREACHABLE - telling the user
+  // Ollama is not running when it is merely slow.
+  it("lets a slow first token arrive instead of spending the connection budget on it", async () => {
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      connectionTimeoutMs: 25,
+      firstTokenTimeoutMs: 5_000,
+      fetchImpl: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        return ndjsonResponse([
+          { message: { role: "assistant", content: "Hi", thinking: "" }, done: false },
+          { message: { role: "assistant", content: "", thinking: "" }, done: true },
+        ]);
+      },
+    });
+
+    const events = await collect(
+      provider.streamChat("request-1", chatRequest, new AbortController().signal),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "started",
+      "delta",
+      "completed",
+    ]);
+  });
+
+  it("reports a stalled generation as FIRST_TOKEN_TIMEOUT rather than a connection failure", async () => {
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      connectionTimeoutMs: 25,
+      firstTokenTimeoutMs: 60,
+      fetchImpl: async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    });
+
+    const events = await collect(
+      provider.streamChat("request-1", chatRequest, new AbortController().signal),
+    );
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      error: { code: "FIRST_TOKEN_TIMEOUT" },
+    });
   });
 });

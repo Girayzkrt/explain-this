@@ -29,7 +29,7 @@ export function ReaderRoot({ controller }: ReaderRootProps) {
   const surfaceStyle = useMemo(() => {
     if (state.status === "idle") return undefined;
     const anchor = state.status === "actions" ? state.selection : state.anchor;
-    const width = state.status === "actions" ? 392 : 416;
+    const width = 416;
     const height = state.status === "actions" ? 52 : 360;
     const position = placeFloatingSurface({
       selectionRect: anchor.rect,
@@ -43,11 +43,16 @@ export function ReaderRoot({ controller }: ReaderRootProps) {
   if (state.status === "idle" || !surfaceStyle) return null;
 
   return (
+    // The mouseup handler is a containment barrier, not an interaction: it keeps reader
+    // control clicks from reaching the page selection listener. A role or tabIndex here
+    // would add a spurious focus stop to a layout container.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className="reader-surface"
       data-reader-surface
       style={surfaceStyle}
       data-state={state.status}
+      onMouseUp={(event) => event.stopPropagation()}
     >
       {state.status === "actions" ? (
         <ActionToolbar onAction={(action) => controller.startAction(action)} />
@@ -63,6 +68,9 @@ export function ReaderRoot({ controller }: ReaderRootProps) {
               setSidePanelError("The side panel is unavailable in this browser.");
             });
           }}
+          onOpenSetup={() => void controller.openOptionsPage()}
+          onChooseModel={() => void controller.openOptionsPage()}
+          onShowOriginSteps={() => void controller.openOptionsPage()}
           onFollowUp={(intent) => controller.followUp(intent)}
           onClose={() => controller.closeFor("invalidation")}
           {...(sidePanelError === undefined ? {} : { sidePanelError })}

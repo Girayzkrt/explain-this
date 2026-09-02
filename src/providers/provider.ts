@@ -44,6 +44,8 @@ export interface GenerationMetrics {
   inputTokens?: number;
   outputTokens?: number;
   durationMs?: number;
+  /** Ollama's terminal reason, such as `stop` or `length`. */
+  finishReason?: string;
 }
 
 export type StreamEvent =

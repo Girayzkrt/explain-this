@@ -278,7 +278,7 @@ describe("RequestCoordinator", () => {
     expect(provider.calls).toHaveLength(0);
   });
 
-  it("globally removes the old tab state before a cross-tab generation starts", async () => {
+  it("cancels the old tab UI and removes its state before a cross-tab generation starts", async () => {
     const { coordinator, provider, sessionRepository } = createHarness();
     const firstPort = new TestPort();
     const secondPort = new TestPort();
@@ -314,6 +314,10 @@ describe("RequestCoordinator", () => {
     );
 
     expect(provider.calls[0]?.signal.aborted).toBe(true);
+    expect(firstPort.posted).toContainEqual({
+      type: "stream-event",
+      event: { type: "cancelled", requestId: REQUEST_1 },
+    });
     expect(provider.calls[1]?.signal.aborted).toBe(false);
     await expect(sessionRepository.getReaderSession(TAB_ID)).resolves.toBeUndefined();
     await expect(sessionRepository.getPrivateSource(TAB_ID)).resolves.toBeUndefined();

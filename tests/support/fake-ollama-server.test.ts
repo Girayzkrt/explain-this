@@ -1,6 +1,8 @@
 // @vitest-environment node
 
+import { Agent, request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
+import { RECOMMENDED_MODEL } from "../../src/shared/constants";
 import { startFakeOllamaServer, type FakeOllamaServer } from "./fake-ollama-server";
 
 const openServers = new Set<FakeOllamaServer>();
@@ -18,6 +20,29 @@ async function readLines(response: Response): Promise<unknown[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as unknown);
+}
+
+function settlesWithin<T>(
+  promise: Promise<T>,
+  milliseconds = 75,
+): Promise<"settled" | "pending"> {
+  return Promise.race([
+    promise.then(() => "settled" as const),
+    new Promise<"pending">((resolve) =>
+      setTimeout(() => resolve("pending"), milliseconds),
+    ),
+  ]);
+}
+
+function requestWithAgent(url: string, agent: Agent): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(url, { agent }, (response) => {
+      response.resume();
+      response.once("end", () => resolve(response.statusCode ?? 0));
+    });
+    request.once("error", reject);
+    request.end();
+  });
 }
 
 afterEach(async () => {
@@ -87,9 +112,10 @@ describe("fake Ollama contract server", () => {
     ).resolves.toEqual({
       models: [
         expect.objectContaining({
-          name: "qwen3:4b",
-          size: 2_500_000_000,
-          details: { family: "qwen3", parameter_size: "4B" },
+          name: RECOMMENDED_MODEL,
+          model: RECOMMENDED_MODEL,
+          size: 1_930_000_000,
+          details: { family: "qwen2.5", parameter_size: "3B" },
         }),
       ],
     });
@@ -106,11 +132,11 @@ describe("fake Ollama contract server", () => {
     await expect(
       fetch(`${server.baseUrl}/api/tags`).then((response) => response.json()),
     ).resolves.toEqual({
-      models: [expect.objectContaining({ name: "qwen3:4b" })],
+      models: [expect.objectContaining({ name: RECOMMENDED_MODEL })],
     });
   });
 
-  it("streams pull progress and records the exact request contract", async () => {
+  it("makes download progress visible before a deterministic completion release", async () => {
     const server = await startServer();
     server.setScenario({ pull: "progress" });
 
@@ -120,52 +146,72 @@ describe("fake Ollama contract server", () => {
         "content-type": "application/json",
         origin: "chrome-extension://contract-test",
       },
-      body: JSON.stringify({ model: "qwen3:4b", stream: true }),
+      body: JSON.stringify({ model: RECOMMENDED_MODEL, stream: true }),
     });
 
-    await expect(readLines(response)).resolves.toEqual([
-      { status: "pulling manifest" },
-      { status: "downloading", completed: 25, total: 100 },
-      { status: "downloading", completed: 100, total: 100 },
-      { status: "success" },
-    ]);
+    const reader = response.body?.getReader();
+    const first = await reader?.read();
+    expect(new TextDecoder().decode(first?.value)).toContain('"completed":25');
+    const nextChunk = reader?.read();
+    if (!nextChunk) throw new Error("The fake pull response has no readable body.");
+    expect(await settlesWithin(nextChunk)).toBe("pending");
+
+    const releasePull = (server as unknown as { releasePull?: () => void }).releasePull;
+    expect(releasePull).toBeTypeOf("function");
+    releasePull?.();
+
+    const remaining = await nextChunk;
+    expect(new TextDecoder().decode(remaining?.value)).toContain('"completed":100');
     expect(server.requests).toEqual([
       expect.objectContaining({
         method: "POST",
         path: "/api/pull",
         origin: "chrome-extension://contract-test",
-        body: { model: "qwen3:4b", stream: true },
+        body: { model: RECOMMENDED_MODEL, stream: true },
       }),
     ]);
   });
 
-  it("streams normal chat chunks with stable content and metrics", async () => {
+  it("makes a chat delta visible before its deterministic completion release", async () => {
     const server = await startServer();
     server.setScenario({ chat: "normal" });
 
     const response = await fetch(`${server.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "qwen3:4b", messages: [], stream: true }),
+      body: JSON.stringify({ model: RECOMMENDED_MODEL, messages: [], stream: true }),
     });
 
-    await expect(readLines(response)).resolves.toEqual([
-      {
-        message: { role: "assistant", content: "Local ", thinking: "" },
-        done: false,
-      },
-      {
-        message: { role: "assistant", content: "answer.", thinking: "" },
-        done: false,
-      },
-      {
-        message: { role: "assistant", content: "", thinking: "" },
-        done: true,
-        total_duration: 1_000_000_000,
-        prompt_eval_count: 12,
-        eval_count: 10,
-      },
-    ]);
+    const reader = response.body?.getReader();
+    const first = await reader?.read();
+    expect(new TextDecoder().decode(first?.value)).toContain('"content":"Local "');
+    const nextChunk = reader?.read();
+    if (!nextChunk) throw new Error("The fake chat response has no readable body.");
+    expect(await settlesWithin(nextChunk)).toBe("pending");
+
+    server.releaseChat();
+
+    const remaining = await nextChunk;
+    const text = new TextDecoder().decode(remaining?.value);
+    expect(text).toContain('"content":"answer."');
+    expect(text).toContain('"done":true');
+  });
+
+  it("provides a deterministic slow-generation metric for readiness-warning flows", async () => {
+    const server = await startServer();
+    server.setScenario({ chat: "slow-generation" as never });
+
+    const response = await fetch(`${server.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: RECOMMENDED_MODEL, messages: [], stream: true }),
+    });
+    const reader = response.body?.getReader();
+    await reader?.read();
+    server.releaseChat();
+    const finalChunk = await reader?.read();
+
+    expect(new TextDecoder().decode(finalChunk?.value)).toContain('"eval_count":4');
   });
 
   it.each([
@@ -193,18 +239,21 @@ describe("fake Ollama contract server", () => {
     },
   );
 
-  it("holds a slow first token until explicitly released", async () => {
+  it("withholds slow-first-token response headers until explicitly released", async () => {
     const server = await startServer();
     server.setScenario({ chat: "slow-first-token" });
-    const response = await fetch(`${server.baseUrl}/api/chat`, {
+    const responsePromise = fetch(`${server.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "qwen3:4b", messages: [], stream: true }),
+      body: JSON.stringify({ model: RECOMMENDED_MODEL, messages: [], stream: true }),
     });
-    const body = response.text();
 
     await server.waitForRequest((request) => request.path === "/api/chat");
+    expect(await settlesWithin(responsePromise)).toBe("pending");
     server.releaseChat();
+
+    const response = await responsePromise;
+    const body = response.text();
 
     await expect(body).resolves.toContain('"content":"Delayed answer."');
   });
@@ -217,7 +266,7 @@ describe("fake Ollama contract server", () => {
       method: "POST",
       signal: caller.signal,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "qwen3:4b", messages: [], stream: true }),
+      body: JSON.stringify({ model: RECOMMENDED_MODEL, messages: [], stream: true }),
     });
     const reader = response.body?.getReader();
     await expect(reader?.read()).resolves.toMatchObject({ done: false });
@@ -235,7 +284,7 @@ describe("fake Ollama contract server", () => {
     const response = await fetch(`${server.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "qwen3:4b", messages: [], stream: true }),
+      body: JSON.stringify({ model: RECOMMENDED_MODEL, messages: [], stream: true }),
     });
     const text = await response.text();
 
@@ -245,5 +294,57 @@ describe("fake Ollama contract server", () => {
       ),
     ).toBe(true);
     expect(text.endsWith('{"message":')).toBe(true);
+  });
+
+  it("destroys an existing keep-alive socket when becoming unreachable and recovers on reset", async () => {
+    const server = await startServer();
+    const agent = new Agent({ keepAlive: true });
+
+    try {
+      await expect(requestWithAgent(`${server.baseUrl}/api/tags`, agent)).resolves.toBe(
+        200,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(Object.values(agent.freeSockets).flat()).not.toHaveLength(0);
+
+      server.setUnreachable(true);
+      await expect(
+        requestWithAgent(`${server.baseUrl}/api/tags`, agent),
+      ).rejects.toThrow();
+
+      server.setUnreachable(false);
+      await expect(fetch(`${server.baseUrl}/api/tags`)).resolves.toMatchObject({
+        status: 200,
+      });
+
+      server.setUnreachable(true);
+      server.reset();
+      await expect(fetch(`${server.baseUrl}/api/tags`)).resolves.toMatchObject({
+        status: 200,
+      });
+    } finally {
+      agent.destroy();
+    }
+  });
+
+  it("streams hostile model markup as literal chat content", async () => {
+    const server = await startServer();
+    server.setScenario({ chat: "hostile-markup" });
+
+    const response = await fetch(`${server.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: RECOMMENDED_MODEL, messages: [], stream: true }),
+    });
+    const lines = (await readLines(response)) as {
+      message?: { content?: string };
+      done?: boolean;
+    }[];
+    const streamed = lines.map((line) => line.message?.content ?? "").join("");
+
+    expect(streamed).toContain("[Model link](https://attacker.example)");
+    expect(streamed).toContain("<img src=x onerror=alert(1)>");
+    expect(streamed).toContain("<script>alert('MODEL_SCRIPT')</script>");
+    expect(lines.at(-1)?.done).toBe(true);
   });
 });

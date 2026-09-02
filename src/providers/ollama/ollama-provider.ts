@@ -89,6 +89,7 @@ function completionMetrics(chunk: OllamaChatChunk): GenerationMetrics | undefine
   if (chunk.eval_count !== undefined) metrics.outputTokens = chunk.eval_count;
   if (chunk.total_duration !== undefined)
     metrics.durationMs = chunk.total_duration / 1_000_000;
+  if (chunk.done_reason !== undefined) metrics.finishReason = chunk.done_reason;
   return Object.keys(metrics).length > 0 ? metrics : undefined;
 }
 
@@ -102,7 +103,7 @@ export class OllamaProvider implements DownloadableModelProvider {
 
   constructor(options: OllamaProviderOptions) {
     this.baseUrl = normalizeOllamaBaseUrl(options.baseUrl);
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = (options.fetchImpl ?? fetch).bind(globalThis);
     this.connectionTimeoutMs =
       options.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
     this.firstTokenTimeoutMs =
@@ -175,6 +176,7 @@ export class OllamaProvider implements DownloadableModelProvider {
 
     try {
       yield { type: "started", requestId };
+      const firstTokenDeadline = Date.now() + this.firstTokenTimeoutMs;
       response = await this.fetchWithConnectionTimeout(
         "api/chat",
         {
@@ -195,6 +197,12 @@ export class OllamaProvider implements DownloadableModelProvider {
           }),
         },
         operation.controller,
+        this.firstTokenTimeoutMs,
+        () =>
+          timeoutError(
+            "FIRST_TOKEN_TIMEOUT",
+            "Ollama did not start responding in time.",
+          ),
       );
       if (!response.ok) throw mapOllamaResponseError(response);
 
@@ -208,7 +216,7 @@ export class OllamaProvider implements DownloadableModelProvider {
 
       while (true) {
         const waitMs = waitingForFirstChunk
-          ? this.firstTokenTimeoutMs
+          ? Math.max(0, firstTokenDeadline - Date.now())
           : this.idleTimeoutMs;
         const waitError = waitingForFirstChunk
           ? timeoutError(
@@ -389,18 +397,21 @@ export class OllamaProvider implements DownloadableModelProvider {
     }
   }
 
+  /**
+   * Ollama withholds response headers until it has work to report, so for generation the
+   * wait for headers is first-token latency, not connection latency. Callers on those
+   * endpoints pass their own budget; reusing the connection budget there would report
+   * CONNECTION_TIMEOUT, which onboarding maps to OLLAMA_UNREACHABLE.
+   */
   private async fetchWithConnectionTimeout(
     path: string,
     init: RequestInit,
     controller: AbortController,
+    timeoutMs: number = this.connectionTimeoutMs,
+    onTimeout: () => PublicError = () =>
+      timeoutError("CONNECTION_TIMEOUT", "The connection to Ollama timed out."),
   ): Promise<Response> {
-    const timer = setTimeout(
-      () =>
-        controller.abort(
-          timeoutError("CONNECTION_TIMEOUT", "The connection to Ollama timed out."),
-        ),
-      this.connectionTimeoutMs,
-    );
+    const timer = setTimeout(() => controller.abort(onTimeout()), timeoutMs);
     try {
       return await this.fetchImpl(new URL(path, this.baseUrl), {
         ...init,

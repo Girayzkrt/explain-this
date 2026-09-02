@@ -127,6 +127,7 @@ function createHarness(
     async openSidePanel() {
       handoffs.push(1);
     },
+    async openOptionsPage() {},
   };
   const controller = new ReaderController(dependencies);
   return {

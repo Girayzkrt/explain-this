@@ -224,7 +224,7 @@ describe("background reader events", () => {
       {
         id: "translate",
         parentId: "explain-this",
-        title: "Translate",
+        title: "Translate (experimental)",
         contexts: ["selection"],
       },
       {

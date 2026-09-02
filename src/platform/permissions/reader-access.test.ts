@@ -198,6 +198,29 @@ describe("ReaderAccessController", () => {
     );
   });
 
+  it("does not remove optional origins that were never granted", async () => {
+    const browser = new FakeReaderBrowserApi();
+    const access = new ReaderAccessController(browser);
+
+    await expect(access.disableAutomaticAccess()).resolves.toBeUndefined();
+
+    expect(browser.unregisterCalls).toBe(0);
+    expect(browser.removeCalls).toEqual([]);
+  });
+
+  it("revokes every individually granted optional origin", async () => {
+    const browser = new FakeReaderBrowserApi();
+    browser.grantOrigins([AUTOMATIC_READER_ORIGINS[0]!]);
+    const access = new ReaderAccessController(browser);
+
+    await expect(access.disableAutomaticAccess()).resolves.toBeUndefined();
+
+    expect(browser.removeCalls).toEqual([[AUTOMATIC_READER_ORIGINS[0]!]]);
+    await expect(browser.containsOrigins([AUTOMATIC_READER_ORIGINS[0]!])).resolves.toBe(
+      false,
+    );
+  });
+
   it("removes origins when the automatic reader is already absent", async () => {
     const browser = new FakeReaderBrowserApi();
     browser.grantOrigins(AUTOMATIC_READER_ORIGINS);

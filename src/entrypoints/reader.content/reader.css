@@ -19,7 +19,7 @@
 .reader-surface {
   position: fixed;
   z-index: 2147483647;
-  width: min(26rem, calc(100vw - 16px));
+  width: min(416px, calc(100vw - 16px));
   color: var(--reader-ink);
   font-family: "Segoe UI", Aptos, system-ui, sans-serif;
   font-size: 15px;
@@ -69,7 +69,7 @@ button:focus-visible {
 
 .reader-card {
   position: relative;
-  max-height: min(72vh, 38rem);
+  max-height: min(72vh, 608px);
   overflow: auto;
   border: 1px solid #cbd3df;
   border-radius: 8px;

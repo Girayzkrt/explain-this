@@ -18,12 +18,9 @@ export const ReadingRequestSchema = z
     preferences: ReadingPreferencesSchema,
   })
   .strict()
-  .refine(
-    (value) => Boolean(value.followUpIntent) === Boolean(value.previousAnswer),
-    {
-      message: "Follow-up intent and previous answer must be supplied together.",
-    },
-  )
+  .refine((value) => Boolean(value.followUpIntent) === Boolean(value.previousAnswer), {
+    message: "Follow-up intent and previous answer must be supplied together.",
+  })
   .refine(
     (value) =>
       value.nearbyContext === undefined || value.preferences.includeNearbyContext,
@@ -33,11 +30,7 @@ export const ReadingRequestSchema = z
 export function validateReadingRequest(input: unknown): ReadingRequest {
   const result = ReadingRequestSchema.safeParse(input);
   if (!result.success) {
-    throw new PublicError(
-      "INVALID_REQUEST",
-      "The reading request was invalid.",
-      false,
-    );
+    throw new PublicError("INVALID_REQUEST", "The reading request was invalid.", false);
   }
 
   return result.data as ReadingRequest;

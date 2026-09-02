@@ -154,7 +154,9 @@ async function reachModelChoice(
 
 async function reachPreferences(harness: ReturnType<typeof createHarness>) {
   await reachModelChoice(harness);
-  await userEvent.click(screen.getByRole("button", { name: /download qwen3:4b/i }));
+  await userEvent.click(
+    screen.getByRole("button", { name: `Download ${RECOMMENDED_MODEL}` }),
+  );
   act(() => {
     harness.client.emit({
       type: "download-progress",
@@ -408,9 +410,11 @@ describe("options onboarding", () => {
     const harness = createHarness();
     await reachModelChoice(harness);
 
-    expect(screen.getByText("qwen3:4b")).toBeVisible();
-    expect(screen.getByText(/approximately 2.5 GB/i)).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: /download qwen3:4b/i }));
+    expect(screen.getByText(RECOMMENDED_MODEL)).toBeVisible();
+    expect(screen.getByText(/approximately 1.9 GB/i)).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: `Download ${RECOMMENDED_MODEL}` }),
+    );
     expect(harness.client.sent.at(-1)).toEqual({
       type: "download-model",
       model: RECOMMENDED_MODEL,
@@ -441,7 +445,9 @@ describe("options onboarding", () => {
   it("reports byte progress and exposes cancellation as a keyboard-operable button", async () => {
     const harness = createHarness();
     await reachModelChoice(harness);
-    await userEvent.click(screen.getByRole("button", { name: /download qwen3:4b/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: `Download ${RECOMMENDED_MODEL}` }),
+    );
     act(() => {
       harness.client.emit({
         type: "download-progress",

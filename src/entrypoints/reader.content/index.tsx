@@ -14,7 +14,7 @@ import {
 import { READER_PORT_NAME } from "../../features/reader/background-events";
 import { ReaderRoot } from "./ReaderRoot";
 import { createReaderConnection } from "./reader-connection";
-import "./reader.css";
+import readerCss from "./reader.css?inline";
 
 function connectReader(): ReaderConnection {
   return createReaderConnection(browser.runtime.connect({ name: READER_PORT_NAME }));
@@ -40,7 +40,7 @@ export default defineContentScript({
   registration: "runtime",
   runAt: "document_idle",
   world: "ISOLATED",
-  cssInjectionMode: "ui",
+  cssInjectionMode: "manual",
   async main(ctx) {
     const existing = document.querySelector("explain-this-reader");
     if (existing?.shadowRoot) return;
@@ -62,6 +62,9 @@ export default defineContentScript({
       writeClipboard: (text) => navigator.clipboard.writeText(text),
       async openSidePanel() {
         await browser.runtime.sendMessage({ type: "open-side-panel" });
+      },
+      async openOptionsPage() {
+        await browser.runtime.sendMessage({ type: "open-options-page" });
       },
     });
 
@@ -98,6 +101,7 @@ export default defineContentScript({
 
     const ui = await createShadowRootUi(ctx, {
       name: "explain-this-reader",
+      css: readerCss,
       position: "overlay",
       anchor: "body",
       zIndex: 2147483647,

@@ -64,6 +64,7 @@ export interface ReaderControllerDependencies {
   restoreFocus(snapshot: SelectionSnapshot): void;
   writeClipboard(text: string): Promise<void>;
   openSidePanel(): Promise<void>;
+  openOptionsPage(): Promise<void>;
 }
 
 interface ActiveRequest {
@@ -291,6 +292,10 @@ export class ReaderController {
 
   openSidePanel(): Promise<void> {
     return this.dependencies.openSidePanel();
+  }
+
+  openOptionsPage(): Promise<void> {
+    return this.dependencies.openOptionsPage();
   }
 
   closeFor(reason: "escape" | "collapse" | "blur" | "invalidation"): void {

@@ -1,11 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
+import { RECOMMENDED_MODEL } from "../../src/shared/constants";
 
 export type TagsScenario = "no-model" | "model" | "origin-reject" | "http-failure";
 export type ShowScenario = "model" | "missing-model" | "origin-reject" | "http-failure";
 export type PullScenario = "progress" | "origin-reject" | "http-failure";
 export type ChatScenario =
   | "normal"
+  | "slow-generation"
+  | "hostile-markup"
   | "slow-first-token"
   | "idle-stream"
   | "malformed-partial"
@@ -38,7 +41,10 @@ export interface FakeOllamaServer {
   readonly requests: readonly RecordedOllamaRequest[];
   readonly cancellations: readonly FakeOllamaCancellation[];
   setScenario(scenario: Partial<FakeOllamaScenario>): void;
+  /** Destroy incoming connections so the extension observes a genuinely unreachable host. */
+  setUnreachable(enabled: boolean): void;
   reset(): void;
+  releasePull(): void;
   releaseChat(): void;
   waitForRequest(
     predicate: (request: RecordedOllamaRequest) => boolean,
@@ -65,6 +71,12 @@ interface CancellationWaiter {
   path: string;
   resolve(cancellation: FakeOllamaCancellation): void;
   reject(error: Error): void;
+}
+
+interface HeldResponse {
+  path: string;
+  response: ServerResponse;
+  release(): void;
 }
 
 function jsonLine(value: unknown): string {
@@ -119,8 +131,9 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
   const requestWaiters = new Set<RequestWaiter>();
   const cancellationWaiters = new Set<CancellationWaiter>();
   const sockets = new Set<Socket>();
-  const heldResponses = new Set<ServerResponse>();
+  const heldResponses = new Set<HeldResponse>();
   let scenario = { ...DEFAULT_SCENARIO };
+  let unreachable = false;
   let closed = false;
 
   const recordRequest = (record: RecordedOllamaRequest): void => {
@@ -143,17 +156,30 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
     }
   };
 
-  const holdResponse = (path: string, response: ServerResponse): void => {
-    heldResponses.add(response);
+  const holdResponse = (
+    path: string,
+    response: ServerResponse,
+    release: () => void,
+  ): void => {
+    const held = { path, response, release };
+    heldResponses.add(held);
     let finished = false;
     response.once("finish", () => {
       finished = true;
-      heldResponses.delete(response);
+      heldResponses.delete(held);
     });
     response.once("close", () => {
-      heldResponses.delete(response);
+      heldResponses.delete(held);
       if (!finished && !closed) recordCancellation(path);
     });
+  };
+
+  const releaseResponses = (path: string): void => {
+    for (const held of [...heldResponses]) {
+      if (held.path !== path || held.response.destroyed || held.response.writableEnded)
+        continue;
+      held.release();
+    }
   };
 
   const server = createServer(async (request, response) => {
@@ -188,11 +214,11 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
                 ? []
                 : [
                     {
-                      name: "qwen3:4b",
-                      model: "qwen3:4b",
-                      size: 2_500_000_000,
+                      name: RECOMMENDED_MODEL,
+                      model: RECOMMENDED_MODEL,
+                      size: 1_930_000_000,
                       digest: "sha256:fake-contract",
-                      details: { family: "qwen3", parameter_size: "4B" },
+                      details: { family: "qwen2.5", parameter_size: "3B" },
                     },
                   ],
           });
@@ -209,7 +235,7 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
           sendSafeError(request, response, 500);
         } else {
           sendJson(request, response, 200, {
-            details: { family: "qwen3", parameter_size: "4B" },
+            details: { family: "qwen2.5", parameter_size: "3B" },
           });
         }
         return;
@@ -225,16 +251,24 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
             ...corsHeaders(request),
             "content-type": "application/x-ndjson; charset=utf-8",
           });
-          response.end(
+          response.write(
             [
               { status: "pulling manifest" },
               { status: "downloading", completed: 25, total: 100 },
-              { status: "downloading", completed: 100, total: 100 },
-              { status: "success" },
             ]
               .map(jsonLine)
               .join(""),
           );
+          holdResponse(url.pathname, response, () => {
+            response.end(
+              [
+                { status: "downloading", completed: 100, total: 100 },
+                { status: "success" },
+              ]
+                .map(jsonLine)
+                .join(""),
+            );
+          });
         }
         return;
       }
@@ -253,15 +287,35 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
           return;
         }
 
+        if (scenario.chat === "slow-first-token") {
+          holdResponse(url.pathname, response, () => {
+            response.writeHead(200, {
+              ...corsHeaders(request),
+              "content-type": "application/x-ndjson; charset=utf-8",
+            });
+            response.end(
+              `${jsonLine({
+                message: {
+                  role: "assistant",
+                  content: "Delayed answer.",
+                  thinking: "",
+                },
+                done: false,
+              })}${jsonLine({
+                message: { role: "assistant", content: "", thinking: "" },
+                done: true,
+                total_duration: 1_000_000_000,
+                prompt_eval_count: 12,
+                eval_count: 10,
+              })}`,
+            );
+          });
+          return;
+        }
         response.writeHead(200, {
           ...corsHeaders(request),
           "content-type": "application/x-ndjson; charset=utf-8",
         });
-        response.flushHeaders();
-        if (scenario.chat === "slow-first-token") {
-          holdResponse(url.pathname, response);
-          return;
-        }
         if (scenario.chat === "idle-stream") {
           response.write(
             jsonLine({
@@ -269,7 +323,57 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
               done: false,
             }),
           );
-          holdResponse(url.pathname, response);
+          holdResponse(url.pathname, response, () => {
+            response.end(
+              `${jsonLine({
+                message: {
+                  role: "assistant",
+                  content: "Delayed answer.",
+                  thinking: "",
+                },
+                done: false,
+              })}${jsonLine({
+                message: { role: "assistant", content: "", thinking: "" },
+                done: true,
+                total_duration: 1_000_000_000,
+                prompt_eval_count: 12,
+                eval_count: 10,
+              })}`,
+            );
+          });
+          return;
+        }
+        if (scenario.chat === "hostile-markup") {
+          response.end(
+            [
+              {
+                message: {
+                  role: "assistant",
+                  content: "Read [Model link](https://attacker.example). ",
+                  thinking: "",
+                },
+                done: false,
+              },
+              {
+                message: {
+                  role: "assistant",
+                  content:
+                    "<img src=x onerror=alert(1)> <script>alert('MODEL_SCRIPT')</script>",
+                  thinking: "",
+                },
+                done: false,
+              },
+              {
+                message: { role: "assistant", content: "", thinking: "" },
+                done: true,
+                total_duration: 1_000_000_000,
+                prompt_eval_count: 12,
+                eval_count: 10,
+              },
+            ]
+              .map(jsonLine)
+              .join(""),
+          );
           return;
         }
         if (scenario.chat === "malformed-partial") {
@@ -282,27 +386,31 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
           return;
         }
 
-        response.end(
-          [
-            {
-              message: { role: "assistant", content: "Local ", thinking: "" },
-              done: false,
-            },
-            {
-              message: { role: "assistant", content: "answer.", thinking: "" },
-              done: false,
-            },
-            {
-              message: { role: "assistant", content: "", thinking: "" },
-              done: true,
-              total_duration: 1_000_000_000,
-              prompt_eval_count: 12,
-              eval_count: 10,
-            },
-          ]
-            .map(jsonLine)
-            .join(""),
+        response.write(
+          jsonLine({
+            message: { role: "assistant", content: "Local ", thinking: "" },
+            done: false,
+          }),
         );
+        holdResponse(url.pathname, response, () => {
+          response.end(
+            [
+              {
+                message: { role: "assistant", content: "answer.", thinking: "" },
+                done: false,
+              },
+              {
+                message: { role: "assistant", content: "", thinking: "" },
+                done: true,
+                total_duration: 1_000_000_000,
+                prompt_eval_count: 12,
+                eval_count: scenario.chat === "slow-generation" ? 4 : 10,
+              },
+            ]
+              .map(jsonLine)
+              .join(""),
+          );
+        });
         return;
       }
 
@@ -314,6 +422,10 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
   });
 
   server.on("connection", (socket) => {
+    if (unreachable) {
+      socket.destroy();
+      return;
+    }
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
   });
@@ -341,31 +453,23 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
     setScenario(next) {
       scenario = { ...scenario, ...next };
     },
+    setUnreachable(enabled) {
+      unreachable = enabled;
+      if (enabled) {
+        for (const socket of sockets) socket.destroy();
+      }
+    },
     reset() {
       scenario = { ...DEFAULT_SCENARIO };
+      unreachable = false;
       requests.splice(0);
       cancellations.splice(0);
     },
+    releasePull() {
+      releaseResponses("/api/pull");
+    },
     releaseChat() {
-      for (const response of [...heldResponses]) {
-        if (response.destroyed || response.writableEnded) continue;
-        response.end(
-          `${jsonLine({
-            message: {
-              role: "assistant",
-              content: "Delayed answer.",
-              thinking: "",
-            },
-            done: false,
-          })}${jsonLine({
-            message: { role: "assistant", content: "", thinking: "" },
-            done: true,
-            total_duration: 1_000_000_000,
-            prompt_eval_count: 12,
-            eval_count: 10,
-          })}`,
-        );
-      }
+      releaseResponses("/api/chat");
     },
     waitForRequest(predicate) {
       if (closed) return Promise.reject(new Error("The fake Ollama server is closed."));
@@ -391,7 +495,7 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
       requestWaiters.clear();
       for (const waiter of cancellationWaiters) waiter.reject(error);
       cancellationWaiters.clear();
-      for (const response of heldResponses) response.destroy();
+      for (const held of heldResponses) held.response.destroy();
       heldResponses.clear();
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) => {

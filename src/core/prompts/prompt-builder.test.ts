@@ -112,7 +112,7 @@ describe("buildChatRequest", () => {
     const request = buildChatRequest(basePromptRequest);
 
     expect(request).toMatchObject({
-      model: "qwen3:4b",
+      model: "qwen2.5:3b-instruct",
       numCtx: 4096,
       think: false,
       keepAlive: "5m",

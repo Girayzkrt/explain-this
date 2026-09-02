@@ -168,24 +168,26 @@ async function reachPreferences(harness: ReturnType<typeof createHarness>) {
   ).toBeVisible();
 }
 
+/** Language, level, nearby context and page access all live on one screen now. */
 async function reachPermission(harness: ReturnType<typeof createHarness>) {
   await reachPreferences(harness);
   const language = screen.getByRole("textbox", { name: /preferred language/i });
   expect(language).toHaveValue("Dutch");
-  await userEvent.click(screen.getByRole("button", { name: /confirm preferences/i }));
-  expect(screen.getByRole("heading", { name: /nearby context/i })).toBeVisible();
-  const nearbyContext = screen.getByRole("checkbox", {
-    name: /include nearby context/i,
-  });
-  expect(nearbyContext).not.toBeChecked();
-  await userEvent.click(screen.getByRole("button", { name: /continue/i }));
   expect(
-    screen.getByRole("heading", { name: /automatic selection actions/i }),
-  ).toBeVisible();
+    screen.getByRole("checkbox", { name: /include nearby context/i }),
+  ).not.toBeChecked();
+  expect(
+    screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
+  ).not.toBeChecked();
+}
+
+/** Submit the merged choices screen, leaving page access switched off. */
+async function submitChoices() {
+  await userEvent.click(screen.getByRole("button", { name: /confirm and continue/i }));
 }
 
 describe("options onboarding", () => {
-  it("starts at Welcome and exposes the real twelve-step setup sequence", async () => {
+  it("starts at Welcome and shows four setup milestones", async () => {
     createHarness();
 
     expect(
@@ -193,9 +195,24 @@ describe("options onboarding", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("progressbar", { name: /setup progress/i }),
-    ).toHaveAttribute("max", "12");
+    ).toHaveAttribute("max", "4");
     expect(screen.getByText(/text → localhost → explanation/i)).toBeVisible();
-    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "1Welcome",
+      "2Local model",
+      "3Preferences",
+      "4Ready",
+    ]);
+  });
+
+  // The rail and the state machine each had their own step mapping, and only one was
+  // updated when the milestones changed, so the progress read "6 of 4".
+  it("keeps the rail on the local-model milestone while choosing a model", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness);
+
+    expect(screen.getByRole("progressbar", { name: /setup progress/i })).toHaveValue(2);
+    expect(screen.getByText("2 of 4")).toBeVisible();
   });
 
   it("waits for settings hydration before mounting an incomplete setup form", async () => {
@@ -468,7 +485,7 @@ describe("options onboarding", () => {
     cancel.focus();
     await userEvent.keyboard("{Enter}");
     expect(harness.client.sent.at(-1)).toEqual({ type: "cancel-download" });
-    expect(screen.getByRole("progressbar", { name: /setup progress/i })).toHaveValue(7);
+    expect(screen.getByRole("progressbar", { name: /setup progress/i })).toHaveValue(2);
   });
 
   it("moves keyboard focus to the active step heading after a transition", async () => {
@@ -487,11 +504,13 @@ describe("options onboarding", () => {
       "Dutch",
     );
     expect(screen.getByRole("radio", { name: /everyday/i })).toBeChecked();
-    await userEvent.click(screen.getByRole("button", { name: /confirm preferences/i }));
-    const context = screen.getByRole("checkbox", { name: /include nearby context/i });
-    expect(context).not.toBeChecked();
-    await userEvent.click(screen.getByRole("button", { name: /continue/i }));
-    expect(screen.getByText(/off unless you enable it/i)).toBeVisible();
+    expect(
+      screen.getByRole("checkbox", { name: /include nearby context/i }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
+    ).not.toBeChecked();
+    expect(screen.getByText(/needs optional access to ordinary pages/i)).toBeVisible();
   });
 
   it("requests page permission directly from Enable and carries denial into readiness", async () => {
@@ -509,9 +528,12 @@ describe("options onboarding", () => {
     });
     await reachPermission(harness);
 
-    fireEvent.click(screen.getByRole("button", { name: /enable automatic actions/i }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
+    );
     expect(permissionCalls).toBe(1);
     await act(async () => permission.resolve({ granted: false }));
+    await submitChoices();
 
     expect(
       screen.getByRole("heading", { name: /testing your local model/i }),
@@ -561,8 +583,9 @@ describe("options onboarding", () => {
     await reachPermission(harness);
 
     await userEvent.click(
-      screen.getByRole("button", { name: /enable automatic actions/i }),
+      screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
     );
+    await submitChoices();
     await screen.findByRole("heading", { name: /testing your local model/i });
 
     expect(order).toEqual(["request", "persist:true", "register"]);
@@ -608,8 +631,9 @@ describe("options onboarding", () => {
     await reachPermission(harness);
 
     await userEvent.click(
-      screen.getByRole("button", { name: /enable automatic actions/i }),
+      screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
     );
+    await submitChoices();
     await screen.findByRole("heading", { name: /testing your local model/i });
 
     expect(order).toEqual(["request", "persist:false", "cleanup"]);
@@ -650,7 +674,7 @@ describe("options onboarding", () => {
     });
     await reachPermission(harness);
 
-    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+    await submitChoices();
     await screen.findByRole("heading", { name: /testing your local model/i });
 
     expect(order).toEqual(["persist:false", "cleanup"]);
@@ -705,8 +729,9 @@ describe("options onboarding", () => {
       await reachPermission(harness);
 
       await userEvent.click(
-        screen.getByRole("button", { name: /enable automatic actions/i }),
+        screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
       );
+      await submitChoices();
       await screen.findByRole("heading", { name: /testing your local model/i });
 
       expect(order.at(-2)).toBe("persist:false");
@@ -721,7 +746,7 @@ describe("options onboarding", () => {
   it("reports readiness warnings and persists preferences without private or generated content", async () => {
     const harness = createHarness();
     await reachPermission(harness);
-    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+    await submitChoices();
 
     act(() => {
       harness.client.emit({
@@ -814,7 +839,7 @@ describe("options onboarding", () => {
   it("offers one blocked-host editor only after setup is saved", async () => {
     const harness = createHarness();
     await reachPermission(harness);
-    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+    await submitChoices();
     act(() => {
       harness.client.emit({
         type: "readiness-result",
@@ -864,7 +889,7 @@ describe("options onboarding", () => {
   // only blocked hosts and diagnostics, with no way to see or change a preference again.
   async function reachSettings(harness: ReturnType<typeof createHarness>) {
     await reachPermission(harness);
-    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+    await submitChoices();
     act(() => {
       harness.client.emit({
         type: "readiness-result",

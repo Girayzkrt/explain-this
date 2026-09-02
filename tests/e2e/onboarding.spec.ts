@@ -68,20 +68,15 @@ test("downloads the recommended model after confirmation and finishes with denie
     options.getByRole("heading", { name: "Choose how explanations read" }),
   ).toBeVisible();
 
+  // Level, language, nearby context and page access are one screen now.
   await options.getByRole("radio", { name: /Technical:/ }).check();
-  await options.getByRole("button", { name: "Confirm preferences" }).click();
-  await expect(
-    options.getByRole("heading", { name: "Nearby context is your choice" }),
-  ).toBeVisible();
   await expect(
     options.getByRole("checkbox", { name: /Include nearby context/ }),
   ).not.toBeChecked();
-  await options.getByRole("button", { name: "Continue" }).click();
-
   await expect(
-    options.getByRole("heading", { name: "Automatic selection actions" }),
-  ).toBeVisible();
-  await options.getByRole("button", { name: "Not now" }).click();
+    options.getByRole("checkbox", { name: /Show the selection toolbar/ }),
+  ).not.toBeChecked();
+  await options.getByRole("button", { name: "Confirm and continue" }).click();
   await e2e.ollama.waitForRequest((request) => request.path === "/api/chat");
   e2e.ollama.releaseChat();
   await expect(options.getByRole("heading", { name: "Ready" })).toBeVisible();
@@ -124,14 +119,9 @@ test("keeps onboarding complete when a usable model only meets the readiness war
   ).toBeVisible();
   await options.getByRole("button", { name: `Use ${RECOMMENDED_MODEL}` }).click();
   await options.getByRole("radio", { name: /Everyday:/ }).check();
-  await options.getByRole("button", { name: "Confirm preferences" }).click();
-  await options.getByRole("button", { name: "Continue" }).click();
-  await expect(
-    options.getByRole("heading", { name: "Automatic selection actions" }),
-  ).toBeVisible();
 
   e2e.ollama.setScenario({ chat: "slow-generation" });
-  await options.getByRole("button", { name: "Not now" }).click();
+  await options.getByRole("button", { name: "Confirm and continue" }).click();
   await expect(
     options.getByRole("heading", { name: "Testing your local model" }),
   ).toBeVisible();

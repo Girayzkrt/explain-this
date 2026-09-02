@@ -5,6 +5,7 @@ import { PublicErrorNotice } from "../../components/PublicErrorNotice";
 import { DiagnosticsView } from "../../features/onboarding/DiagnosticsView";
 import type { OriginGuidance } from "../../features/onboarding/origin-guidance";
 import {
+  onboardingStepNumber,
   useOnboarding,
   type OnboardingClientConnection,
   type OnboardingController,
@@ -15,20 +16,7 @@ import type { ReaderAccessService } from "../../platform/permissions/reader-acce
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
 import { RECOMMENDED_MODEL } from "../../shared/constants";
 
-const SETUP_STEPS = [
-  "Welcome",
-  "Check runtime",
-  "Install Ollama",
-  "Allow origin",
-  "Find models",
-  "Choose model",
-  "Download",
-  "Preferences",
-  "Nearby context",
-  "Page access",
-  "Readiness test",
-  "Ready",
-] as const;
+const SETUP_STEPS = ["Welcome", "Local model", "Preferences", "Ready"] as const;
 
 const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
 
@@ -49,45 +37,13 @@ export interface OptionsAppProps {
   dependencies: OptionsAppDependencies;
 }
 
-function currentStep(state: OnboardingState): number {
-  switch (state.step) {
-    case "loading":
-      return 1;
-    case "welcome":
-      return 1;
-    case "checking-runtime":
-      return 2;
-    case "runtime-missing":
-      return 3;
-    case "origin-guidance":
-      return 4;
-    case "choosing-model":
-      return 6;
-    case "downloading":
-      return 7;
-    case "preferences":
-      return 8;
-    case "context":
-      return 9;
-    case "permission":
-      return 10;
-    case "readiness":
-      return 11;
-    case "complete":
-    case "settings":
-      return 12;
-    case "failed":
-      return state.interruptedStep;
-  }
-}
-
 export function OptionsApp({ dependencies }: OptionsAppProps) {
   const controller = useOnboarding({
     createClient: dependencies.createClient,
     settingsRepository: dependencies.settingsRepository,
     getUiLanguage: dependencies.getUiLanguage,
   });
-  const step = currentStep(controller.state);
+  const step = onboardingStepNumber(controller.state);
 
   return (
     <main className="setup-shell">
@@ -163,7 +119,7 @@ function ActiveStep({
       );
     case "welcome":
       return (
-        <StepFrame eyebrow="Step 1 of 12" heading="Understand text locally">
+        <StepFrame eyebrow="Step 1 of 4" heading="Understand text locally">
           <p>
             Explain This uses Ollama on your computer. It cannot install or start Ollama
             for you, but this setup checks each part and shows what to do.
@@ -183,7 +139,7 @@ function ActiveStep({
       );
     case "checking-runtime":
       return (
-        <StepFrame eyebrow="Step 2 of 12" heading="Checking Ollama">
+        <StepFrame eyebrow="Step 2 of 4" heading="Checking Ollama">
           <div className="working-status" role="status">
             <span className="status-pulse" aria-hidden="true" />
             Looking for Ollama at <code>127.0.0.1:11434</code>…
@@ -193,7 +149,7 @@ function ActiveStep({
       );
     case "runtime-missing":
       return (
-        <StepFrame eyebrow="Step 3 of 12" heading="Ollama isn’t available">
+        <StepFrame eyebrow="Step 2 of 4" heading="Ollama isn’t available">
           <PublicErrorNotice error={state.error} />
           <p>
             Install and start Ollama, then return here. This extension cannot silently
@@ -240,17 +196,11 @@ function ActiveStep({
     case "downloading":
       return <DownloadStep onCancel={controller.cancelDownload} state={state} />;
     case "preferences":
-      return <PreferencesStep controller={controller} />;
+      return <PreferencesStep controller={controller} dependencies={dependencies} />;
     case "context":
-      return <ContextStep controller={controller} />;
+      return <PreferencesStep controller={controller} dependencies={dependencies} />;
     case "permission":
-      return (
-        <PermissionStep
-          controller={controller}
-          readerAccess={dependencies.readerAccess}
-          settingsRepository={dependencies.settingsRepository}
-        />
-      );
+      return <PreferencesStep controller={controller} dependencies={dependencies} />;
     case "readiness":
       return <ReadinessStep state={state} />;
     case "complete":
@@ -307,7 +257,7 @@ function OriginStep({
   onCheckAgain(): void;
 }) {
   return (
-    <StepFrame eyebrow="Step 4 of 12" heading="Allow this extension in Ollama">
+    <StepFrame eyebrow="Step 2 of 4" heading="Allow this extension in Ollama">
       <PublicErrorNotice error={error} />
       <p>Use this exact origin. Do not use a wildcard or a network-wide bind.</p>
       <ol className="guidance-list">
@@ -348,7 +298,7 @@ function ModelStep({
   );
 
   return (
-    <StepFrame eyebrow="Steps 5–6 of 12" heading="Choose a local model">
+    <StepFrame eyebrow="Step 2 of 4" heading="Choose a local model">
       <div className="model-recommendation">
         <p className="field-label">Recommended for general reading</p>
         <h3>{RECOMMENDED_MODEL}</h3>
@@ -439,7 +389,7 @@ function DownloadStep({
       : `${formatBytes(completed)} of ${formatBytes(total)}`;
 
   return (
-    <StepFrame eyebrow="Step 7 of 12" heading="Downloading the local model">
+    <StepFrame eyebrow="Step 2 of 4" heading="Downloading the local model">
       <div role="status">
         {total === undefined ? (
           <>
@@ -463,16 +413,81 @@ function DownloadStep({
   );
 }
 
-function PreferencesStep({ controller }: { controller: OnboardingController }) {
+function PreferencesStep({
+  controller,
+  dependencies,
+}: {
+  controller: OnboardingController;
+  dependencies: OptionsAppDependencies;
+}) {
   const [draft, setDraft] = useState(controller.preferences);
+  const [nearbyContext, setNearbyContext] = useState(false);
+  const [accessGranted, setAccessGranted] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [accessSettled, setAccessSettled] = useState(false);
+  const [requesting, setRequesting] = useState(false);
 
+  async function settleAccess(granted: boolean): Promise<void> {
+    if (granted) {
+      try {
+        await dependencies.settingsRepository.update({ automaticToolbar: true });
+        await dependencies.readerAccess.registerAutomaticAccess();
+        setAccessGranted(true);
+        setAccessDenied(false);
+        setAccessSettled(true);
+        setRequesting(false);
+        return;
+      } catch {
+        // Fall through so the rollback below both persists and revokes.
+      }
+    }
+    await dependencies.settingsRepository
+      .update({ automaticToolbar: false })
+      .catch(() => undefined);
+    await dependencies.readerAccess.disableAutomaticAccess().catch(() => undefined);
+    setAccessGranted(false);
+    setAccessDenied(true);
+    setAccessSettled(true);
+    setRequesting(false);
+  }
+
+  /** Requested synchronously so the prompt stays inside the user gesture. */
+  function toggleAccess(): void {
+    if (accessGranted) {
+      setAccessGranted(false);
+      setAccessSettled(true);
+      void dependencies.settingsRepository
+        .update({ automaticToolbar: false })
+        .then(() => dependencies.readerAccess.disableAutomaticAccess())
+        .catch(() => undefined);
+      return;
+    }
+    const request = dependencies.readerAccess.requestAutomaticAccess();
+    setRequesting(true);
+    void request.then(
+      (granted) => settleAccess(granted),
+      () => settleAccess(false),
+    );
+  }
+
+  // Both transitions run in one handler, so React batches them into a single render and
+  // the intermediate context state is never painted. Each decision is still recorded.
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    controller.savePreferences(draft);
+    // Leaving the toggle off must still revoke access granted in an earlier run, which is
+    // what the old dedicated "Not now" button guaranteed.
+    if (!accessGranted && !accessSettled) {
+      void dependencies.settingsRepository
+        .update({ automaticToolbar: false })
+        .then(() => dependencies.readerAccess.disableAutomaticAccess())
+        .catch(() => undefined);
+    }
+    controller.savePreferences({ ...draft, includeNearbyContext: nearbyContext });
+    controller.resolvePermission(accessGranted, accessDenied && !accessGranted);
   }
 
   return (
-    <StepFrame eyebrow="Step 8 of 12" heading="Choose how explanations read">
+    <StepFrame eyebrow="Step 3 of 4" heading="Choose how explanations read">
       <form onSubmit={submit}>
         <div className="field-group">
           <label htmlFor="preferred-language">Preferred language</label>
@@ -535,124 +550,52 @@ function PreferencesStep({ controller }: { controller: OnboardingController }) {
           <span>Preserve important English terms in parentheses</span>
         </label>
 
+        <label
+          className="check-row privacy-choice"
+          htmlFor="nearby-context"
+          aria-label="Include nearby context. Off by default."
+        >
+          <input
+            id="nearby-context"
+            type="checkbox"
+            checked={nearbyContext}
+            onChange={(event) => setNearbyContext(event.target.checked)}
+          />
+          <span>
+            <strong>Include nearby context</strong>
+            <small>
+              Off by default. A short piece of visible text beside your selection can
+              clarify pronouns and ambiguous phrases, but more page text goes to your
+              local model. Form values, hidden text, and unrelated regions are excluded.
+            </small>
+          </span>
+        </label>
+
+        <label
+          className="check-row privacy-choice"
+          htmlFor="automatic-toolbar"
+          aria-label="Show the selection toolbar automatically. Off by default."
+        >
+          <input
+            id="automatic-toolbar"
+            type="checkbox"
+            checked={accessGranted}
+            disabled={requesting}
+            onChange={toggleAccess}
+          />
+          <span>
+            <strong>Show the selection toolbar automatically</strong>
+            <small>
+              Off by default. Needs optional access to ordinary pages. Without it, the
+              context menu and keyboard shortcut still work.
+            </small>
+          </span>
+        </label>
+
         <button className="button button-primary" type="submit">
-          Confirm preferences
+          Confirm and continue
         </button>
       </form>
-    </StepFrame>
-  );
-}
-
-function ContextStep({ controller }: { controller: OnboardingController }) {
-  const [includeNearbyContext, setIncludeNearbyContext] = useState(false);
-
-  return (
-    <StepFrame eyebrow="Step 9 of 12" heading="Nearby context is your choice">
-      <p>
-        A short piece of visible text beside your selection can clarify pronouns and
-        ambiguous phrases. It means more page text goes to your local model.
-      </p>
-      <label
-        className="check-row privacy-choice"
-        htmlFor="nearby-context"
-        aria-label="Include nearby context. Off by default."
-      >
-        <input
-          id="nearby-context"
-          type="checkbox"
-          checked={includeNearbyContext}
-          onChange={(event) => setIncludeNearbyContext(event.target.checked)}
-        />
-        <span>
-          <strong>Include nearby context</strong>
-          <small>
-            Off by default. Form values, hidden text, and unrelated regions are
-            excluded.
-          </small>
-        </span>
-      </label>
-      <button
-        className="button button-primary"
-        type="button"
-        onClick={() => controller.saveContext(includeNearbyContext)}
-      >
-        Continue
-      </button>
-    </StepFrame>
-  );
-}
-
-function PermissionStep({
-  controller,
-  readerAccess,
-  settingsRepository,
-}: {
-  controller: OnboardingController;
-  readerAccess: OptionsAppDependencies["readerAccess"];
-  settingsRepository: SettingsRepository;
-}) {
-  const [requesting, setRequesting] = useState(false);
-
-  async function settleAutomaticToolbar(granted: boolean): Promise<void> {
-    if (granted) {
-      try {
-        await settingsRepository.update({ automaticToolbar: true });
-        await readerAccess.registerAutomaticAccess();
-        controller.resolvePermission(true);
-        return;
-      } catch {
-        // Fall through to persist the rollback and revoke any granted access.
-      }
-    }
-
-    await settingsRepository.update({ automaticToolbar: false }).catch(() => undefined);
-    await readerAccess.disableAutomaticAccess().catch(() => undefined);
-    controller.resolvePermission(false, true);
-  }
-
-  function handleEnableAutomaticToolbar(): void {
-    const permissionRequest = readerAccess.requestAutomaticAccess();
-    setRequesting(true);
-    void permissionRequest.then(
-      (granted) => settleAutomaticToolbar(granted),
-      () => settleAutomaticToolbar(false),
-    );
-  }
-
-  return (
-    <StepFrame eyebrow="Step 10 of 12" heading="Automatic selection actions">
-      <p>
-        If enabled, Explain This can notice a selection and show its reading actions on
-        ordinary HTTP and HTTPS pages.
-      </p>
-      <div className="permission-explanation">
-        <strong>Optional page access</strong>
-        <p>
-          This stays off unless you enable it. Without it, the context menu, keyboard
-          shortcut, and extension action still work.
-        </p>
-      </div>
-      <div className="actions">
-        <button
-          className="button button-primary"
-          type="button"
-          disabled={requesting}
-          onClick={handleEnableAutomaticToolbar}
-        >
-          {requesting ? "Waiting for Chrome…" : "Enable automatic actions"}
-        </button>
-        <button
-          className="button button-secondary"
-          type="button"
-          disabled={requesting}
-          onClick={() => {
-            setRequesting(true);
-            void settleAutomaticToolbar(false);
-          }}
-        >
-          Not now
-        </button>
-      </div>
     </StepFrame>
   );
 }
@@ -663,7 +606,7 @@ function ReadinessStep({
   state: Extract<OnboardingState, { step: "readiness" }>;
 }) {
   return (
-    <StepFrame eyebrow="Step 11 of 12" heading="Testing your local model">
+    <StepFrame eyebrow="Step 4 of 4" heading="Testing your local model">
       <div className="working-status" role="status">
         <span className="status-pulse" aria-hidden="true" />
         Generating one harmless sample explanation…
@@ -691,7 +634,7 @@ function ReadyStep({
   const warning = resultState.result.status === "warning";
 
   return (
-    <StepFrame eyebrow="Step 12 of 12" heading="Ready">
+    <StepFrame eyebrow="Step 4 of 4" heading="Ready">
       <div
         className={`readiness-result ${warning ? "warning" : "ready"}`}
         role="status"

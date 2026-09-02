@@ -67,32 +67,25 @@ type OnboardingAction =
   | { type: "saved" }
   | { type: "failed"; error: PublicErrorShape };
 
-function onboardingStepNumber(state: OnboardingState): number {
+export function onboardingStepNumber(state: OnboardingState): number {
   switch (state.step) {
     case "loading":
     case "welcome":
       return 1;
     case "checking-runtime":
-      return 2;
     case "runtime-missing":
-      return 3;
     case "origin-guidance":
-      return 4;
     case "choosing-model":
-      return 6;
     case "downloading":
-      return 7;
+      return 2;
     case "preferences":
-      return 8;
     case "context":
-      return 9;
     case "permission":
-      return 10;
+      return 3;
     case "readiness":
-      return 11;
     case "complete":
     case "settings":
-      return 12;
+      return 4;
     case "failed":
       return state.interruptedStep;
   }

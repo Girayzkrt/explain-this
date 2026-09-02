@@ -161,6 +161,30 @@ async function reachModelChoice(
   expect(screen.getByRole("heading", { name: /choose a local model/i })).toBeVisible();
 }
 
+async function reachCloudModelChoice(
+  harness: ReturnType<typeof createHarness>,
+  models: Extract<OnboardingEvent, { type: "models-result" }>["models"] = [],
+) {
+  await userEvent.click(
+    await screen.findByRole("button", { name: /start local setup/i }),
+  );
+  await userEvent.click(
+    await screen.findByRole("button", { name: /use ollama cloud/i }),
+  );
+  act(() => {
+    harness.client.emit({
+      type: "runtime-result",
+      health: { available: true, status: "ready" },
+    });
+  });
+  expect(harness.client.sent.at(-1)).toEqual({
+    type: "list-models",
+    mode: "ollama-cloud",
+  });
+  act(() => harness.client.emit({ type: "models-result", models }));
+  expect(screen.getByRole("heading", { name: /choose a cloud model/i })).toBeVisible();
+}
+
 async function reachPreferences(harness: ReturnType<typeof createHarness>) {
   await reachModelChoice(harness);
   await userEvent.click(
@@ -200,7 +224,7 @@ describe("options onboarding", () => {
     createHarness();
 
     expect(
-      await screen.findByRole("heading", { name: /understand text locally/i }),
+      await screen.findByRole("heading", { name: /set up explain this/i }),
     ).toBeVisible();
     expect(
       screen.getByRole("progressbar", { name: /setup progress/i }),
@@ -315,13 +339,11 @@ describe("options onboarding", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent(/loading settings/i);
     expect(
-      screen.queryByRole("heading", { name: /understand text locally/i }),
+      screen.queryByRole("heading", { name: /set up explain this/i }),
     ).not.toBeInTheDocument();
 
     await act(async () => hydration.resolve(storedSettings(0)));
-    expect(
-      screen.getByRole("heading", { name: /understand text locally/i }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: /set up explain this/i })).toBeVisible();
   });
 
   it("opens completed onboarding in the settings experience without readiness output", async () => {
@@ -630,6 +652,85 @@ describe("options onboarding", () => {
     ).toBeVisible();
   });
 
+  it("disables a cloud model while the on-this-computer mode is active", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness, [
+      { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+      { id: "gemma4:26b-cloud", displayName: "gemma4:26b-cloud", origin: "cloud" },
+    ]);
+
+    const localOption = screen.getByRole("option", { name: /^gemma3:4b$/i });
+    expect(localOption).not.toBeDisabled();
+
+    const cloudOption = screen.getByRole("option", { name: /gemma4:26b-cloud/i });
+    expect(cloudOption).toBeDisabled();
+    expect(cloudOption).toHaveAccessibleName(/runs in Ollama's cloud/i);
+  });
+
+  it("disables a local model while the Ollama Cloud mode is active", async () => {
+    const harness = createHarness();
+    await reachCloudModelChoice(harness, [
+      { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+      {
+        id: RECOMMENDED_CLOUD_MODEL,
+        displayName: RECOMMENDED_CLOUD_MODEL,
+        origin: "cloud",
+      },
+    ]);
+
+    const localOption = screen.getByRole("option", { name: /gemma3:4b/i });
+    expect(localOption).toBeDisabled();
+    expect(localOption).toHaveAccessibleName(/runs on this computer/i);
+
+    const cloudOption = screen.getByRole("option", {
+      name: new RegExp(`^${RECOMMENDED_CLOUD_MODEL}$`, "i"),
+    });
+    expect(cloudOption).not.toBeDisabled();
+  });
+
+  it("does not claim the model step is local while cloud mode is active", async () => {
+    const harness = createHarness();
+    await reachCloudModelChoice(harness, [
+      {
+        id: RECOMMENDED_CLOUD_MODEL,
+        displayName: RECOMMENDED_CLOUD_MODEL,
+        origin: "cloud",
+      },
+    ]);
+
+    const heading = screen.getByRole("heading", { name: /choose a cloud model/i });
+    expect(heading).toBeVisible();
+    expect(heading.textContent).not.toMatch(/local/i);
+    expect(document.body.textContent).not.toMatch(/choose a local model/i);
+  });
+
+  it("does not claim the welcome screen or loading state are local before a mode is chosen", async () => {
+    const hydration = deferred<StoredSettings>();
+    createHarness({
+      settingsRepository: {
+        get: () => hydration.promise,
+        async update() {
+          throw new Error("not used");
+        },
+        async markOnboardingComplete() {
+          throw new Error("not used");
+        },
+      },
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/loading settings/i);
+    const loadingEyebrow = document.querySelector(".eyebrow");
+    expect(loadingEyebrow?.textContent).not.toMatch(/local/i);
+    expect(loadingEyebrow?.textContent).not.toMatch(/cloud/i);
+
+    await act(async () => hydration.resolve(storedSettings(0)));
+    const heading = screen.getByRole("heading", { name: /set up explain this/i });
+    expect(heading).toBeVisible();
+    expect(heading.textContent).not.toMatch(/local/i);
+    expect(heading.textContent).not.toMatch(/cloud/i);
+    expect(document.body.textContent).not.toMatch(/understand text locally/i);
+  });
+
   it("reports byte progress and exposes cancellation as a keyboard-operable button", async () => {
     const harness = createHarness();
     await reachModelChoice(harness);
@@ -648,6 +749,9 @@ describe("options onboarding", () => {
       });
     });
 
+    expect(
+      screen.getByRole("heading", { name: /downloading the local model/i }),
+    ).toBeVisible();
     expect(screen.getByRole("progressbar", { name: /model download/i })).toHaveValue(
       1_250_000_000,
     );

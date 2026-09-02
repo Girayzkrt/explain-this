@@ -11,6 +11,7 @@ import {
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
+import { checkModeConsistency } from "../../core/requests/mode-consistency";
 import { DiagnosticsView } from "../../features/onboarding/DiagnosticsView";
 import {
   languageLabel,
@@ -28,6 +29,7 @@ import {
 import type { OnboardingClient } from "../../platform/messaging/onboarding-client";
 import type { ReaderAccessService } from "../../platform/permissions/reader-access";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
+import type { SelectedProvider } from "../../features/settings/settings";
 import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../shared/constants";
 
 const SETUP_STEPS = ["Welcome", "Local model", "Preferences", "Ready"] as const;
@@ -115,7 +117,7 @@ function ActiveStep({
   switch (state.step) {
     case "loading":
       return (
-        <StepFrame eyebrow="Local setup" heading="Loading Explain This">
+        <StepFrame eyebrow="Setup" heading="Loading Explain This">
           <div className="working-status" role="status">
             <span className="status-pulse" aria-hidden="true" />
             Loading settings…
@@ -124,7 +126,7 @@ function ActiveStep({
       );
     case "welcome":
       return (
-        <StepFrame eyebrow="Step 1 of 4" heading="Understand text locally">
+        <StepFrame eyebrow="Step 1 of 4" heading="Set up Explain This">
           <p>
             Explain This uses Ollama on your computer. It cannot install or start Ollama
             for you, but this setup checks each part and shows what to do.
@@ -203,7 +205,13 @@ function ActiveStep({
     case "choosing-model":
       return <ModelStep controller={controller} state={state} />;
     case "downloading":
-      return <DownloadStep onCancel={controller.cancelDownload} state={state} />;
+      return (
+        <DownloadStep
+          onCancel={controller.cancelDownload}
+          state={state}
+          selectedProvider={controller.preferences.selectedProvider}
+        />
+      );
     case "preferences":
       return <PreferencesStep controller={controller} dependencies={dependencies} />;
     case "context":
@@ -387,49 +395,77 @@ function ModelStep({
   controller: OnboardingController;
   state: Extract<OnboardingState, { step: "choosing-model" }>;
 }) {
-  const [installedModel, setInstalledModel] = useState(state.models[0]?.id ?? "");
-  const recommendationInstalled = state.models.some(
-    (model) => model.id === RECOMMENDED_MODEL,
+  const selectedProvider = controller.preferences.selectedProvider;
+  const isCloudMode = selectedProvider === "ollama-cloud";
+
+  // In cloud mode the headline recommendation must be the cloud model, and there is no
+  // "download" concept here — a cloud model only exists in this list once the reader has
+  // pulled it via `ollama pull` (see CloudSigninStep). So the block only appears once that
+  // model is actually present and the gate accepts it; otherwise there is no recommendation
+  // rather than a false or gate-refused one.
+  const headlineModelId = isCloudMode ? RECOMMENDED_CLOUD_MODEL : RECOMMENDED_MODEL;
+  const headlineModel = state.models.find((model) => model.id === headlineModelId);
+  const headlineInstalled =
+    headlineModel !== undefined &&
+    checkModeConsistency(selectedProvider, headlineModel.origin) === "ok";
+  const showHeadline = !isCloudMode || headlineInstalled;
+
+  const usableModels = state.models.filter(
+    (model) => checkModeConsistency(selectedProvider, model.origin) === "ok",
   );
+  const [installedModel, setInstalledModel] = useState(
+    usableModels[0]?.id ?? state.models[0]?.id ?? "",
+  );
+  const selectedModelEntry = state.models.find((model) => model.id === installedModel);
+  const selectionUsable =
+    selectedModelEntry !== undefined &&
+    checkModeConsistency(selectedProvider, selectedModelEntry.origin) === "ok";
   const hasSpecializedModel = state.models.some((model) =>
     model.displayName.toLowerCase().includes("code-specialized"),
   );
 
   return (
-    <StepFrame eyebrow="Step 2 of 4" heading="Choose a local model">
-      <div className="model-recommendation">
-        <p className="field-label">Recommended for general reading</p>
-        <h3>{RECOMMENDED_MODEL}</h3>
-        <p>
-          Approximately 3.3 GB. The only model measured here that stays usable across
-          the European languages this extension targets.
-        </p>
-        <button
-          className="button button-primary"
-          type="button"
-          onClick={() => {
-            if (recommendationInstalled) {
-              controller.useInstalledModel(RECOMMENDED_MODEL);
-            } else {
-              controller.downloadModel(RECOMMENDED_MODEL);
-            }
-          }}
-        >
-          {recommendationInstalled ? (
-            <Check size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
-          ) : (
-            <Download
-              size={16}
-              strokeWidth={1.9}
-              aria-hidden="true"
-              focusable="false"
-            />
-          )}
-          {recommendationInstalled
-            ? `Use ${RECOMMENDED_MODEL}`
-            : `Download ${RECOMMENDED_MODEL}`}
-        </button>
-      </div>
+    <StepFrame
+      eyebrow="Step 2 of 4"
+      heading={isCloudMode ? "Choose a cloud model" : "Choose a local model"}
+    >
+      {showHeadline ? (
+        <div className="model-recommendation">
+          <p className="field-label">Recommended for general reading</p>
+          <h3>{headlineModelId}</h3>
+          <p>
+            {isCloudMode
+              ? "Runs on Ollama's servers. Nothing to download on this computer."
+              : "Approximately 3.3 GB. The only model measured here that stays usable " +
+                "across the European languages this extension targets."}
+          </p>
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={() => {
+              if (headlineInstalled) {
+                controller.useInstalledModel(headlineModelId);
+              } else {
+                controller.downloadModel(headlineModelId);
+              }
+            }}
+          >
+            {headlineInstalled ? (
+              <Check size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
+            ) : (
+              <Download
+                size={16}
+                strokeWidth={1.9}
+                aria-hidden="true"
+                focusable="false"
+              />
+            )}
+            {headlineInstalled
+              ? `Use ${headlineModelId}`
+              : `Download ${headlineModelId}`}
+          </button>
+        </div>
+      ) : null}
 
       {state.models.length > 0 ? (
         <div className="installed-models">
@@ -439,14 +475,25 @@ function ModelStep({
             value={installedModel}
             onChange={(event) => setInstalledModel(event.target.value)}
           >
-            {state.models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.displayName}
-                {model.sizeBytes === undefined
-                  ? ""
-                  : ` · ${formatBytes(model.sizeBytes)}`}
-              </option>
-            ))}
+            {state.models.map((model) => {
+              const consistency = checkModeConsistency(selectedProvider, model.origin);
+              const blocked = consistency !== "ok";
+              const reason =
+                consistency === "cloud-model-in-local-mode"
+                  ? " — runs in Ollama's cloud"
+                  : consistency === "local-model-in-cloud-mode"
+                    ? " — runs on this computer"
+                    : "";
+              return (
+                <option key={model.id} value={model.id} disabled={blocked}>
+                  {model.displayName}
+                  {model.sizeBytes === undefined
+                    ? ""
+                    : ` · ${formatBytes(model.sizeBytes)}`}
+                  {reason}
+                </option>
+              );
+            })}
           </select>
           {hasSpecializedModel ? (
             <p className="model-warning" role="status">
@@ -456,7 +503,7 @@ function ModelStep({
           <button
             className="button button-secondary"
             type="button"
-            disabled={!installedModel}
+            disabled={!installedModel || !selectionUsable}
             onClick={() => controller.useInstalledModel(installedModel)}
           >
             Use installed model
@@ -482,9 +529,11 @@ function ModelStep({
 function DownloadStep({
   onCancel,
   state,
+  selectedProvider,
 }: {
   onCancel(): void;
   state: Extract<OnboardingState, { step: "downloading" }>;
+  selectedProvider: SelectedProvider;
 }) {
   const { progress } = state;
   const completed = progress.type === "progress" ? progress.completedBytes : 0;
@@ -495,9 +544,13 @@ function DownloadStep({
         ? `${formatBytes(completed)} downloaded`
         : "Preparing local download"
       : `${formatBytes(completed)} of ${formatBytes(total)}`;
+  const heading =
+    selectedProvider === "ollama-local"
+      ? "Downloading the local model"
+      : "Downloading the model";
 
   return (
-    <StepFrame eyebrow="Step 2 of 4" heading="Downloading the local model">
+    <StepFrame eyebrow="Step 2 of 4" heading={heading}>
       <div role="status">
         {total === undefined ? (
           <>

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFERENCES, type ReadingPreferences } from "../settings/settings";
-import type { ChatRequest, LlmProvider, StreamEvent } from "../../providers/provider";
+import type {
+  ChatRequest,
+  LlmProvider,
+  ModelInfo,
+  StreamEvent,
+} from "../../providers/provider";
 import type {
   BackgroundPortMessage,
   ReaderPortMessage,
@@ -61,13 +66,14 @@ type StreamPlan = (call: ProviderCall) => AsyncIterable<StreamEvent>;
 class FakeProvider implements LlmProvider {
   readonly calls: ProviderCall[] = [];
   readonly plans: StreamPlan[] = [];
+  models: ModelInfo[] = [];
 
   async checkHealth(): Promise<{ available: boolean }> {
     return { available: true };
   }
 
-  async listModels(): Promise<[]> {
-    return [];
+  async listModels(): Promise<ModelInfo[]> {
+    return this.models;
   }
 
   async getModelDetails(
@@ -128,6 +134,16 @@ function createHarness(preferences: ReadingPreferences = DEFAULT_PREFERENCES) {
   const storage = new MemoryStorageArea();
   const sessionRepository = createSessionRepository(storage);
   const provider = new FakeProvider();
+  // Tests default to a provider that confirms the configured model is local,
+  // matching the default local mode, unless a test overrides `provider.models`
+  // to exercise the mode-consistency gate itself.
+  provider.models = [
+    {
+      id: preferences.selectedModel,
+      displayName: preferences.selectedModel,
+      origin: "local",
+    },
+  ];
   const coordinator = new RequestCoordinator({
     provider,
     sessionRepository,
@@ -599,6 +615,33 @@ describe("RequestCoordinator", () => {
     expect(JSON.stringify(port.posted)).not.toContain("private host");
   });
 
+  it("refuses to start a request when local mode has a cloud model selected", async () => {
+    const { coordinator, provider } = createHarness({
+      ...DEFAULT_PREFERENCES,
+      selectedProvider: "ollama-local",
+      selectedModel: "gemma4:26b-cloud",
+    });
+    provider.models = [
+      { id: "gemma4:26b-cloud", displayName: "gemma4:26b-cloud", origin: "cloud" },
+    ];
+    const port = new TestPort();
+    coordinator.handle(port, sender());
+
+    port.send({ type: "start-request", request: request() });
+
+    await vi.waitFor(() =>
+      expect(port.posted).toContainEqual({
+        type: "stream-event",
+        event: {
+          type: "failed",
+          requestId: REQUEST_1,
+          error: expect.objectContaining({ code: "CLOUD_MODEL_IN_LOCAL_MODE" }),
+        },
+      }),
+    );
+    expect(provider.calls).toHaveLength(0);
+  });
+
   it("retries from private session storage after coordinator suspension", async () => {
     const storage = new MemoryStorageArea();
     const sessionRepository = createSessionRepository(storage);
@@ -619,6 +662,13 @@ describe("RequestCoordinator", () => {
       origin: ORIGIN,
     });
     const provider = new FakeProvider();
+    provider.models = [
+      {
+        id: DEFAULT_PREFERENCES.selectedModel,
+        displayName: DEFAULT_PREFERENCES.selectedModel,
+        origin: "local",
+      },
+    ];
     provider.plans.push(
       finitePlan([
         { type: "started", requestId: REQUEST_1 },

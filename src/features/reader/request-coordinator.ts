@@ -1,10 +1,15 @@
 import { buildChatRequest } from "../../core/prompts/prompt-builder";
 import { enforceReadingBudget } from "../../core/requests/budget";
+import {
+  blocksRequest,
+  checkModeConsistency,
+} from "../../core/requests/mode-consistency";
 import { PublicError } from "../../core/requests/public-error";
 import { ModelConcurrencyGate } from "../../core/requests/model-concurrency-gate";
 import { validateReadingRequest } from "../../core/requests/schemas";
 import type { FollowUpIntent, ReadingRequest } from "../../core/requests/types";
 import { acceptStreamEvent, createStreamSequence } from "../../core/streaming/sequence";
+import type { SelectedProvider } from "../settings/settings";
 import {
   parseReaderPortMessage,
   type BackgroundPortMessage,
@@ -430,7 +435,12 @@ export class RequestCoordinator {
       }
       this.post(context.port, { type: "session-snapshot", session });
       const chatRequest = buildChatRequest(request);
-      void this.runGeneration(generation, session, chatRequest);
+      void this.runGeneration(
+        generation,
+        session,
+        chatRequest,
+        request.preferences.selectedProvider,
+      );
     } catch (error) {
       generation.controller.abort();
       if (this.active === generation) this.active = undefined;
@@ -442,6 +452,7 @@ export class RequestCoordinator {
     generation: ActiveGeneration,
     initialSession: ReaderSession,
     chatRequest: ReturnType<typeof buildChatRequest>,
+    selectedProvider: SelectedProvider,
   ): Promise<void> {
     let session = initialSession;
     const sequence = createStreamSequence(generation.requestId);
@@ -467,6 +478,21 @@ export class RequestCoordinator {
 
     try {
       await this.modelGate.runExclusive(generation.controller.signal, async () => {
+        const models = await this.dependencies.provider.listModels(
+          generation.controller.signal,
+        );
+        const selected = models.find((model) => model.id === chatRequest.model);
+        // An unlisted model cannot be shown to be local, and local mode has made a
+        // promise it must keep: an "unknown" origin is treated as cloud, never local.
+        const origin = selected?.origin ?? "unknown";
+        if (blocksRequest(checkModeConsistency(selectedProvider, origin))) {
+          throw new PublicError(
+            "CLOUD_MODEL_IN_LOCAL_MODE",
+            "The selected model runs in Ollama's cloud, but this computer-only mode was chosen. Pick a local model or switch to Ollama Cloud in Settings.",
+            true,
+          );
+        }
+
         for await (const event of this.dependencies.provider.streamChat(
           generation.requestId,
           chatRequest,

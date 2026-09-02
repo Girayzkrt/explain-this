@@ -1,3 +1,53 @@
+/* Bundled locally: extensions cannot fetch remote fonts, and the manifest verifier
+   rejects remote URLs. Variable subsets, latin plus latin-ext for Turkish. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+    U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/newsreader-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+    U+FFFD;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/newsreader-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   --cloud: #f5f7fb;
   --paper: #ffffff;
@@ -12,12 +62,19 @@
   --coral: #d45555;
   --line: #d9e0ea;
   --focus: #0c4aeb;
-  --display: "Segoe UI Variable Display", "Aptos Display", "Segoe UI", sans-serif;
-  --body: "Segoe UI Variable Text", "Aptos", "Segoe UI", system-ui, sans-serif;
+  --display: "Newsreader", Georgia, "Times New Roman", serif;
+  --body: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  /* Type scale ported from personal_app: 16px body, 14px controls, 12px labels. */
+  --text-body: 1rem;
+  --text-sm: 0.875rem;
+  --text-label: 0.75rem;
+  --control-height: 40px;
+  --field-height: 44px;
   --mono: "Cascadia Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
   color: var(--ink);
   background: var(--cloud);
   font-family: var(--body);
+  font-size: var(--text-body);
   font-synthesis: none;
 }
 
@@ -74,7 +131,7 @@ code {
 .field-label {
   margin: 0 0 0.55rem;
   color: var(--cobalt-dark);
-  font-size: 0.76rem;
+  font-size: var(--text-sm);
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -84,14 +141,14 @@ code {
 .step-frame h2,
 .step-frame h3 {
   font-family: var(--display);
-  letter-spacing: -0.025em;
+  letter-spacing: -0.035em;
 }
 
 .setup-rail h1 {
   max-width: 12ch;
   margin: 0;
   font-size: clamp(2rem, 3vw, 3.25rem);
-  font-weight: 680;
+  font-weight: 400;
   line-height: 1.02;
 }
 
@@ -108,7 +165,7 @@ code {
   gap: 0.7rem;
   width: 100%;
   color: var(--slate);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .local-loop span:nth-child(2),
@@ -144,7 +201,7 @@ code {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 650;
 }
 
@@ -152,7 +209,7 @@ code {
 .byte-count {
   color: var(--slate);
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
@@ -187,7 +244,7 @@ progress::-webkit-progress-value {
   align-items: center;
   min-height: 2rem;
   color: var(--slate);
-  font-size: 0.84rem;
+  font-size: var(--text-sm);
 }
 
 .setup-steps li[data-status="current"] {
@@ -201,7 +258,7 @@ progress::-webkit-progress-value {
 
 .step-number {
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: var(--text-label);
 }
 
 .work-surface {
@@ -221,7 +278,7 @@ progress::-webkit-progress-value {
   max-width: 19ch;
   margin: 0;
   font-size: clamp(2rem, 4vw, 3.7rem);
-  font-weight: 680;
+  font-weight: 400;
   line-height: 1.03;
 }
 
@@ -280,11 +337,12 @@ progress::-webkit-progress-value {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   min-height: 2.9rem;
   padding: 0.68rem 1rem;
   border: 1px solid transparent;
-  border-radius: 0.3rem;
-  font-weight: 700;
+  border-radius: 6px;
+  font-weight: 600;
   line-height: 1.2;
   text-decoration: none;
   cursor: pointer;
@@ -322,7 +380,9 @@ progress::-webkit-progress-value {
 
 .error-notice {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.55rem 0.8rem;
   padding: 1rem 1.1rem;
   border: 1px solid var(--coral);
   color: #7a2828;
@@ -331,6 +391,19 @@ progress::-webkit-progress-value {
 
 .error-notice p {
   margin: 0;
+}
+
+.error-notice-icon {
+  margin-top: 0.15rem;
+  color: var(--coral);
+}
+
+.error-notice > *:not(.error-notice-icon) {
+  grid-column: 2;
+}
+
+.error-notice > button {
+  justify-self: start;
 }
 
 .guidance-list,
@@ -441,7 +514,7 @@ fieldset {
 .check-row small,
 .field-help {
   color: var(--slate);
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 450;
 }
 
@@ -475,7 +548,7 @@ fieldset {
 
 .readiness-result span {
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .blocked-editor {

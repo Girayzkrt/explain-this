@@ -1,3 +1,4 @@
+import { TriangleAlert } from "lucide-react";
 import type { PublicErrorShape } from "../providers/provider";
 import {
   getErrorPresentation,
@@ -43,6 +44,13 @@ export function PublicErrorNotice(props: PublicErrorNoticeProps) {
 
   return (
     <div className="error-notice" role="alert">
+      <TriangleAlert
+        className="error-notice-icon"
+        size={18}
+        strokeWidth={1.9}
+        aria-hidden="true"
+        focusable="false"
+      />
       <div>
         <strong>{presentation.title}</strong>
         <p>{presentation.explanation}</p>

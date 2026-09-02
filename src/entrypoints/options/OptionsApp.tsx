@@ -1,3 +1,4 @@
+import { Check, Download, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
@@ -366,6 +367,16 @@ function ModelStep({
             }
           }}
         >
+          {recommendationInstalled ? (
+            <Check size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
+          ) : (
+            <Download
+              size={16}
+              strokeWidth={1.9}
+              aria-hidden="true"
+              focusable="false"
+            />
+          )}
           {recommendationInstalled
             ? `Use ${RECOMMENDED_MODEL}`
             : `Download ${RECOMMENDED_MODEL}`}
@@ -771,6 +782,7 @@ function SettingsStep({
             type="button"
             onClick={() => void addBlockedHost()}
           >
+            <Plus size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
             Add blocked host
           </button>
         </div>
@@ -784,6 +796,12 @@ function SettingsStep({
                   aria-label={`Remove ${host}`}
                   onClick={() => void removeBlockedHost(host)}
                 >
+                  <Trash2
+                    size={14}
+                    strokeWidth={1.8}
+                    aria-hidden="true"
+                    focusable="false"
+                  />
                   Remove
                 </button>
               </li>

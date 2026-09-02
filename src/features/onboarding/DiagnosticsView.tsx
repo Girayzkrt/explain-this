@@ -1,3 +1,4 @@
+import { ClipboardCopy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   createSanitizedDiagnosticReport,
@@ -57,6 +58,12 @@ export function DiagnosticsView({
         type="button"
         onClick={copyDiagnostics}
       >
+        <ClipboardCopy
+          size={16}
+          strokeWidth={1.8}
+          aria-hidden="true"
+          focusable="false"
+        />
         Copy diagnostics
       </button>
       {status === "copied" ? <p role="status">Diagnostics copied.</p> : null}

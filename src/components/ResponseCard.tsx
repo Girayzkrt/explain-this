@@ -1,3 +1,4 @@
+import { Copy, PanelRight, Square, X } from "lucide-react";
 import type { FollowUpIntent } from "../core/requests/types";
 import type { ReaderUiState } from "../features/reader/reader-controller";
 import { PublicErrorNotice } from "./PublicErrorNotice";
@@ -71,7 +72,7 @@ export function ResponseCard({
           aria-label="Close explanation"
           onClick={onClose}
         >
-          ×
+          <X size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
         </button>
       </header>
 
@@ -111,15 +112,23 @@ export function ResponseCard({
         <div className="reader-control-row">
           {active ? (
             <button type="button" onClick={onStop}>
+              <Square size={14} strokeWidth={2} aria-hidden="true" focusable="false" />
               Stop
             </button>
           ) : null}
           {answer ? (
             <button type="button" onClick={onCopy}>
+              <Copy size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
               Copy
             </button>
           ) : null}
           <button type="button" onClick={onOpenSidePanel}>
+            <PanelRight
+              size={14}
+              strokeWidth={1.75}
+              aria-hidden="true"
+              focusable="false"
+            />
             Open in side panel
           </button>
         </div>

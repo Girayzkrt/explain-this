@@ -1,3 +1,53 @@
+/* Bundled locally: extensions cannot fetch remote fonts, and the manifest verifier
+   rejects remote URLs. Variable subsets, latin plus latin-ext for Turkish. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+    U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/newsreader-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+    U+FFFD;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/newsreader-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   --cloud: #f5f7fb;
   --paper: #ffffff;
@@ -8,12 +58,19 @@
   --line: #d9e0ea;
   --coral: #d45555;
   --focus: #0c4aeb;
-  --display: "Segoe UI Variable Display", "Aptos Display", "Segoe UI", sans-serif;
-  --body: "Segoe UI Variable Text", "Aptos", "Segoe UI", system-ui, sans-serif;
+  --display: "Newsreader", Georgia, "Times New Roman", serif;
+  --body: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  /* Type scale ported from personal_app: 16px body, 14px controls, 12px labels. */
+  --text-body: 1rem;
+  --text-sm: 0.875rem;
+  --text-label: 0.75rem;
+  --control-height: 40px;
+  --field-height: 44px;
   --mono: "Cascadia Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
   color: var(--ink);
   background: var(--cloud);
   font-family: var(--body);
+  font-size: var(--text-body);
   font-synthesis: none;
 }
 
@@ -79,7 +136,7 @@ button:hover {
   margin: 0 0 0.18rem;
   color: var(--cobalt-dark);
   font-family: var(--mono);
-  font-size: 0.69rem;
+  font-size: var(--text-label);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -114,7 +171,7 @@ h1 {
   gap: 0.75rem;
   color: var(--slate);
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: var(--text-label);
 }
 
 .source-meta span:first-child {
@@ -135,7 +192,7 @@ blockquote {
   margin: 0.65rem 0 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: 0.94rem;
+  font-size: var(--text-body);
   font-weight: 620;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -148,7 +205,7 @@ blockquote {
   margin: 0.55rem 0 0;
   color: var(--slate);
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: var(--text-label);
 }
 
 .answer-region {
@@ -168,7 +225,7 @@ blockquote {
 .answer-copy {
   margin-top: 0.9rem;
   overflow-wrap: anywhere;
-  font-size: 0.96rem;
+  font-size: 1.0625rem;
 }
 
 .answer-copy > :first-child {
@@ -236,11 +293,28 @@ blockquote {
 }
 
 .error-notice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.55rem 0.8rem;
   margin-top: 0.9rem;
   padding: 0.85rem;
   border: 1px solid var(--coral);
   color: #7a2828;
   background: #fff5f5;
+}
+
+.error-notice-icon {
+  margin-top: 0.15rem;
+  color: var(--coral);
+}
+
+.error-notice > *:not(.error-notice-icon) {
+  grid-column: 2;
+}
+
+.error-notice > button {
+  justify-self: start;
 }
 
 .error-notice p {
@@ -257,7 +331,7 @@ blockquote {
   display: inline-block;
   margin-top: 1.4rem;
   color: var(--cobalt-dark);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   text-underline-offset: 0.2em;
 }
 

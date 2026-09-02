@@ -1,11 +1,17 @@
+import { Languages, Lightbulb, Sparkles, WandSparkles } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ReadingAction } from "../core/requests/types";
 import type { KeyboardEvent } from "react";
 
-const actions: ReadonlyArray<{ action: ReadingAction; label: string }> = [
-  { action: "explain", label: "Explain" },
-  { action: "simplify", label: "Simplify" },
-  { action: "translate", label: "Translate (experimental)" },
-  { action: "example", label: "Example" },
+const actions: ReadonlyArray<{
+  action: ReadingAction;
+  label: string;
+  Icon: LucideIcon;
+}> = [
+  { action: "explain", label: "Explain", Icon: Sparkles },
+  { action: "simplify", label: "Simplify", Icon: WandSparkles },
+  { action: "translate", label: "Translate (experimental)", Icon: Languages },
+  { action: "example", label: "Example", Icon: Lightbulb },
 ];
 
 export interface ActionToolbarProps {
@@ -45,7 +51,7 @@ export function ActionToolbar({ onAction }: ActionToolbarProps) {
       aria-label="Explain selected text"
       onKeyDown={moveFocus}
     >
-      {actions.map(({ action, label }) => (
+      {actions.map(({ action, label, Icon }) => (
         <button
           className="reader-toolbar-button"
           key={action}
@@ -53,6 +59,9 @@ export function ActionToolbar({ onAction }: ActionToolbarProps) {
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => onAction(action)}
         >
+          {/* Decorative: the visible label already names the action, so the icon stays
+              out of the accessible name. */}
+          <Icon size={15} strokeWidth={1.75} aria-hidden="true" focusable="false" />
           {label}
         </button>
       ))}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PublicError } from "../../core/requests/public-error";
+import { PUBLIC_ERROR_CODES, PublicError } from "../../core/requests/public-error";
 import {
   ReadingPreferencesSchema,
   type ReadingPreferences,
@@ -34,26 +34,7 @@ export type OnboardingEvent =
   | { type: "onboarding-complete" }
   | { type: "onboarding-failed"; error: PublicErrorShape };
 
-const PublicErrorCodeSchema = z.enum([
-  "OLLAMA_UNREACHABLE",
-  "OLLAMA_ORIGIN_BLOCKED",
-  "NO_MODEL",
-  "MODEL_NOT_FOUND",
-  "MODEL_DOWNLOAD_FAILED",
-  "CONNECTION_TIMEOUT",
-  "FIRST_TOKEN_TIMEOUT",
-  "STREAM_IDLE_TIMEOUT",
-  "MALFORMED_STREAM",
-  "UNSUPPORTED_PAGE",
-  "PAGE_PERMISSION_DENIED",
-  "EMPTY_SELECTION",
-  "SELECTION_TOO_LARGE",
-  "CONTEXT_TOO_LARGE",
-  "REQUEST_CANCELLED",
-  "PROVIDER_ERROR",
-  "INVALID_REQUEST",
-  "INVALID_ENDPOINT",
-]);
+const PublicErrorCodeSchema = z.enum(PUBLIC_ERROR_CODES);
 
 const PublicErrorShapeSchema = z
   .object({

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PublicError } from "../../core/requests/public-error";
+import { PUBLIC_ERROR_CODES, PublicError } from "../../core/requests/public-error";
 import type { FollowUpIntent, ReadingAction } from "../../core/requests/types";
 import {
   MAX_DISPLAY_ANSWER_CHARACTERS,
@@ -31,26 +31,7 @@ const RequestIdSchema = z.uuid();
 const TransportTextSchema = z.string().min(1).max(32_000);
 const PublicErrorSchema = z
   .object({
-    code: z.enum([
-      "OLLAMA_UNREACHABLE",
-      "OLLAMA_ORIGIN_BLOCKED",
-      "NO_MODEL",
-      "MODEL_NOT_FOUND",
-      "MODEL_DOWNLOAD_FAILED",
-      "CONNECTION_TIMEOUT",
-      "FIRST_TOKEN_TIMEOUT",
-      "STREAM_IDLE_TIMEOUT",
-      "MALFORMED_STREAM",
-      "UNSUPPORTED_PAGE",
-      "PAGE_PERMISSION_DENIED",
-      "EMPTY_SELECTION",
-      "SELECTION_TOO_LARGE",
-      "CONTEXT_TOO_LARGE",
-      "REQUEST_CANCELLED",
-      "PROVIDER_ERROR",
-      "INVALID_REQUEST",
-      "INVALID_ENDPOINT",
-    ]),
+    code: z.enum(PUBLIC_ERROR_CODES),
     message: TransportTextSchema,
     recoverable: z.boolean(),
   })

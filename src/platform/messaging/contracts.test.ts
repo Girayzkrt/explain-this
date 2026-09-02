@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PUBLIC_ERROR_CODES } from "../../core/requests/public-error";
 import { DEFAULT_PREFERENCES } from "../../features/settings/settings";
 import {
   parseBackgroundPortMessage,
@@ -145,6 +146,23 @@ describe("reader port message contract", () => {
   ])("rejects malformed background port input %#", (message) => {
     expect(parseBackgroundPortMessage(message)).toBeUndefined();
   });
+
+  it.each(PUBLIC_ERROR_CODES)(
+    // Regression: a public error code that isn't accepted by this wire schema
+    // silently vanishes at the port boundary (parseBackgroundPortMessage
+    // returns undefined and the message is dropped) instead of reaching the
+    // reader UI as a visible failure. Every code the app can throw must
+    // round-trip here.
+    "accepts every known public error code over the wire (%s)",
+    (code) => {
+      const message = {
+        type: "command-failed",
+        error: { code, message: "A bounded message.", recoverable: true },
+      };
+
+      expect(parseBackgroundPortMessage(message)).toEqual(message);
+    },
+  );
 
   it("parses a safe stored session but rejects records with private source fields", () => {
     const safeSession = {

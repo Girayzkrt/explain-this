@@ -1,30 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { PublicErrorCode } from "./public-error";
+import { PUBLIC_ERROR_CODES } from "./public-error";
 import { ERROR_PRESENTATIONS } from "./error-copy";
 
-const publicErrorCodes: readonly PublicErrorCode[] = [
-  "OLLAMA_UNREACHABLE",
-  "OLLAMA_ORIGIN_BLOCKED",
-  "NO_MODEL",
-  "MODEL_NOT_FOUND",
-  "MODEL_DOWNLOAD_FAILED",
-  "CONNECTION_TIMEOUT",
-  "FIRST_TOKEN_TIMEOUT",
-  "STREAM_IDLE_TIMEOUT",
-  "MALFORMED_STREAM",
-  "UNSUPPORTED_PAGE",
-  "PAGE_PERMISSION_DENIED",
-  "EMPTY_SELECTION",
-  "SELECTION_TOO_LARGE",
-  "CONTEXT_TOO_LARGE",
-  "REQUEST_CANCELLED",
-  "PROVIDER_ERROR",
-  "INVALID_REQUEST",
-  "INVALID_ENDPOINT",
-];
-
 describe("public error presentations", () => {
-  it.each(publicErrorCodes)("provides fixed recovery copy for %s", (code) => {
+  it.each(PUBLIC_ERROR_CODES)("provides fixed recovery copy for %s", (code) => {
     const presentation = ERROR_PRESENTATIONS[code];
 
     expect(presentation.title).toMatch(/\S/);

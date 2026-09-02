@@ -1,29 +1,13 @@
-import type { PublicErrorCode } from "../../core/requests/public-error";
+import {
+  PUBLIC_ERROR_CODES,
+  type PublicErrorCode,
+} from "../../core/requests/public-error";
 
 const MAX_TEXT_LENGTH = 128;
 const MAX_MODEL_SIZE_BYTES = 1_000_000_000_000;
 const MAX_DURATION_MS = 3_600_000;
 const MAX_TOKEN_COUNT = 1_000_000;
-const PUBLIC_ERROR_CODES = new Set<PublicErrorCode>([
-  "OLLAMA_UNREACHABLE",
-  "OLLAMA_ORIGIN_BLOCKED",
-  "NO_MODEL",
-  "MODEL_NOT_FOUND",
-  "MODEL_DOWNLOAD_FAILED",
-  "CONNECTION_TIMEOUT",
-  "FIRST_TOKEN_TIMEOUT",
-  "STREAM_IDLE_TIMEOUT",
-  "MALFORMED_STREAM",
-  "UNSUPPORTED_PAGE",
-  "PAGE_PERMISSION_DENIED",
-  "EMPTY_SELECTION",
-  "SELECTION_TOO_LARGE",
-  "CONTEXT_TOO_LARGE",
-  "REQUEST_CANCELLED",
-  "PROVIDER_ERROR",
-  "INVALID_REQUEST",
-  "INVALID_ENDPOINT",
-]);
+const KNOWN_PUBLIC_ERROR_CODES = new Set<PublicErrorCode>(PUBLIC_ERROR_CODES);
 
 export interface DiagnosticFacts {
   extensionVersion?: unknown;
@@ -147,7 +131,7 @@ export function createSanitizedDiagnosticReport(
     endpoint: { hostname: endpointHostname(own(facts, "endpoint")), port: 11434 },
     ...(model === undefined ? {} : { model }),
     ...(typeof errorCode === "string" &&
-    PUBLIC_ERROR_CODES.has(errorCode as PublicErrorCode)
+    KNOWN_PUBLIC_ERROR_CODES.has(errorCode as PublicErrorCode)
       ? { errorCode: errorCode as PublicErrorCode }
       : {}),
     ...(metrics === undefined ? {} : { metrics }),

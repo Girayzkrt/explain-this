@@ -1,8 +1,13 @@
-import { Check, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
 import { DiagnosticsView } from "../../features/onboarding/DiagnosticsView";
+import {
+  languageLabel,
+  READING_LANGUAGES,
+  resolveLanguageName,
+} from "../../features/settings/languages";
 import type { OriginGuidance } from "../../features/onboarding/origin-guidance";
 import {
   onboardingStepNumber,
@@ -225,6 +230,31 @@ function ActiveStep({
   }
 }
 
+function LanguagePicker({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange(name: string): void;
+}) {
+  return (
+    <>
+      <label htmlFor={id}>{label}</label>
+      <select id={id} value={value} onChange={(event) => onChange(event.target.value)}>
+        {READING_LANGUAGES.map((entry) => (
+          <option key={entry.code} value={entry.name}>
+            {languageLabel(entry)}
+          </option>
+        ))}
+      </select>
+    </>
+  );
+}
+
 function StepFrame({
   eyebrow,
   heading,
@@ -371,6 +401,16 @@ function ModelStep({
       ) : (
         <p className="empty-note">No installed model was found.</p>
       )}
+      <div className="actions">
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={() => controller.goBack()}
+        >
+          <ArrowLeft size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
+          Back
+        </button>
+      </div>
     </StepFrame>
   );
 }
@@ -494,19 +534,15 @@ function PreferencesStep({
     <StepFrame eyebrow="Step 3 of 4" heading="Choose how explanations read">
       <form onSubmit={submit}>
         <div className="field-group">
-          <label htmlFor="preferred-language">Preferred language</label>
-          <input
+          <LanguagePicker
             id="preferred-language"
-            value={draft.preferredLanguage}
-            maxLength={64}
-            minLength={2}
-            required
-            onChange={(event) =>
-              setDraft({ ...draft, preferredLanguage: event.target.value })
-            }
+            label="Preferred language"
+            value={resolveLanguageName(draft.preferredLanguage)}
+            onChange={(preferredLanguage) => setDraft({ ...draft, preferredLanguage })}
           />
           <p className="field-help">
-            Chrome suggested this language. Confirm or change it before continuing.
+            Chrome suggested this language. Type the first letters to jump down the
+            list.
           </p>
         </div>
 
@@ -596,9 +632,19 @@ function PreferencesStep({
           </span>
         </label>
 
-        <button className="button button-primary" type="submit">
-          Confirm and continue
-        </button>
+        <div className="actions">
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => controller.goBack()}
+          >
+            <ArrowLeft size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
+            Back
+          </button>
+          <button className="button button-primary" type="submit">
+            Confirm and continue
+          </button>
+        </div>
       </form>
     </StepFrame>
   );
@@ -682,7 +728,9 @@ function SettingsStep({
   dependencies: OptionsAppDependencies;
 }) {
   const [blockedSites, setBlockedSites] = useState(controller.preferences.blockedSites);
-  const [language, setLanguage] = useState(controller.preferences.preferredLanguage);
+  const [language, setLanguage] = useState(() =>
+    resolveLanguageName(controller.preferences.preferredLanguage),
+  );
   const [toolbar, setToolbar] = useState(controller.preferences.automaticToolbar);
   const [requesting, setRequesting] = useState(false);
 
@@ -790,27 +838,15 @@ function SettingsStep({
           </div>
         </fieldset>
 
-        <label htmlFor="settings-language">Explanation language</label>
-        <div className="inline-field">
-          <input
-            id="settings-language"
-            value={language}
-            maxLength={64}
-            minLength={2}
-            onChange={(event) => setLanguage(event.target.value)}
-          />
-          <button
-            className="button button-secondary"
-            type="button"
-            disabled={language.trim().length < 2}
-            onClick={() =>
-              void controller.updateSettings({ preferredLanguage: language.trim() })
-            }
-          >
-            <Check size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
-            Save language
-          </button>
-        </div>
+        <LanguagePicker
+          id="settings-language"
+          label="Explanation language"
+          value={language}
+          onChange={(preferredLanguage) => {
+            setLanguage(preferredLanguage);
+            void controller.updateSettings({ preferredLanguage });
+          }}
+        />
 
         <label className="check-row">
           <input

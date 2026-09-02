@@ -6,6 +6,7 @@ import type {
   ModelInfo,
   PublicErrorShape,
 } from "../../providers/provider";
+import { resolveLanguageName } from "../settings/languages";
 import {
   createDefaultPreferences,
   type ReadingPreferences,
@@ -64,6 +65,7 @@ type OnboardingAction =
       permissionDenied: boolean;
     }
   | { type: "complete"; result: ReadinessResult }
+  | { type: "back"; models: ModelInfo[]; model: string }
   | { type: "saved" }
   | { type: "failed"; error: PublicErrorShape };
 
@@ -100,6 +102,18 @@ function reduceOnboarding(
       return { step: action.completed ? "settings" : "welcome" };
     case "check-runtime":
       return { step: "checking-runtime" };
+    case "back":
+      switch (state.step) {
+        case "choosing-model":
+          return { step: "welcome" };
+        case "preferences":
+          return { step: "choosing-model", models: action.models };
+        case "complete":
+          return { step: "preferences", model: action.model };
+        default:
+          // Downloads and the readiness test own their own cancellation.
+          return state;
+      }
     case "runtime-missing":
       return {
         step: "runtime-missing",
@@ -153,6 +167,7 @@ export interface OnboardingController {
   preferences: ReadingPreferences;
   showOriginGuidance(): void;
   checkRuntime(): void;
+  goBack(): void;
   downloadModel(model: string): void;
   useInstalledModel(model: string): void;
   cancelDownload(): void;
@@ -175,7 +190,7 @@ function initialPreferences(getUiLanguage: () => string): ReadingPreferences {
   const preferences = createDefaultPreferences();
   const uiLanguage = getUiLanguage().trim();
   if (uiLanguage.length >= 2 && uiLanguage.length <= 64) {
-    preferences.preferredLanguage = uiLanguage;
+    preferences.preferredLanguage = resolveLanguageName(uiLanguage);
   }
   return preferences;
 }
@@ -190,6 +205,7 @@ export function useOnboarding({
     initialPreferences(getUiLanguage),
   );
   const preferencesRef = useRef(preferences);
+  const lastModelsRef = useRef<ModelInfo[]>([]);
   const clientRef = useRef<OnboardingClientConnection | undefined>(undefined);
   const resumableCommandRef = useRef<OnboardingCommand | undefined>(undefined);
   const retryCommandRef = useRef<OnboardingCommand | undefined>(undefined);
@@ -262,6 +278,7 @@ export function useOnboarding({
           });
           return;
         case "models-result":
+          lastModelsRef.current = event.models;
           resumableCommandRef.current = undefined;
           dispatch({ type: "models", models: event.models });
           return;
@@ -316,6 +333,14 @@ export function useOnboarding({
     dispatch({ type: "check-runtime" });
     send({ type: "check-runtime" });
   }, [send]);
+
+  const goBack = useCallback((): void => {
+    dispatch({
+      type: "back",
+      models: lastModelsRef.current,
+      model: preferencesRef.current.selectedModel,
+    });
+  }, []);
 
   const showOriginGuidance = useCallback((): void => {
     dispatch({ type: "show-origin-guidance" });
@@ -434,6 +459,7 @@ export function useOnboarding({
     preferences,
     showOriginGuidance,
     checkRuntime,
+    goBack,
     downloadModel,
     useInstalledModel,
     cancelDownload,

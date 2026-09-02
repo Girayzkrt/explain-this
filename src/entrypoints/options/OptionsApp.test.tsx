@@ -1,4 +1,5 @@
 import {
+  within,
   act,
   cleanup,
   fireEvent,
@@ -171,7 +172,7 @@ async function reachPreferences(harness: ReturnType<typeof createHarness>) {
 /** Language, level, nearby context and page access all live on one screen now. */
 async function reachPermission(harness: ReturnType<typeof createHarness>) {
   await reachPreferences(harness);
-  const language = screen.getByRole("textbox", { name: /preferred language/i });
+  const language = screen.getByRole("combobox", { name: /preferred language/i });
   expect(language).toHaveValue("Dutch");
   expect(
     screen.getByRole("checkbox", { name: /include nearby context/i }),
@@ -213,6 +214,84 @@ describe("options onboarding", () => {
 
     expect(screen.getByRole("progressbar", { name: /setup progress/i })).toHaveValue(2);
     expect(screen.getByText("2 of 4")).toBeVisible();
+  });
+
+  // A free-text language box meant guessing at spellings the model may not honour.
+  it("offers every language as a picker and preselects the browser language", async () => {
+    const harness = createHarness();
+    await reachPreferences(harness);
+
+    const picker = screen.getByRole("combobox", { name: /preferred language/i });
+    expect(picker).toHaveValue("Dutch");
+    expect(within(picker).getAllByRole("option").length).toBeGreaterThan(150);
+    expect(
+      within(picker).getByRole("option", { name: /^Turkish/ }),
+    ).toBeInTheDocument();
+  });
+
+  // Language tags are not option values, so an unresolved one would silently select the
+  // first language in the list. Existing installs have a tag stored from getUILanguage().
+  it("resolves a stored language tag to the matching option", async () => {
+    const stored = storedSettings();
+    stored.preferences.preferredLanguage = "tr-TR";
+    const harness = createHarness({
+      settingsRepository: {
+        async get() {
+          return structuredClone(stored);
+        },
+        async update(patch) {
+          stored.preferences = { ...stored.preferences, ...patch };
+          return structuredClone(stored);
+        },
+        async markOnboardingComplete() {
+          return structuredClone(stored);
+        },
+      },
+    });
+    await reachPreferences(harness);
+
+    expect(screen.getByRole("combobox", { name: /preferred language/i })).toHaveValue(
+      "Turkish",
+    );
+  });
+
+  it("stores the chosen language by its English name", async () => {
+    const harness = createHarness();
+    await reachPreferences(harness);
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /preferred language/i }),
+      "Turkish",
+    );
+    await submitChoices();
+
+    expect(harness.client.sent.at(-1)).toMatchObject({
+      type: "run-readiness",
+      preferences: { preferredLanguage: "Turkish" },
+    });
+  });
+
+  // Setup was a one-way street: a wrong model or level could only be undone by finishing.
+  it("goes back from the model choice to the welcome step", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness);
+
+    await userEvent.click(screen.getByRole("button", { name: /back/i }));
+
+    expect(
+      screen.getByRole("heading", { name: /understand text locally/i }),
+    ).toBeVisible();
+  });
+
+  it("goes back from preferences to the model choice", async () => {
+    const harness = createHarness();
+    await reachPreferences(harness);
+
+    await userEvent.click(screen.getByRole("button", { name: /back/i }));
+
+    expect(
+      screen.getByRole("heading", { name: /choose a local model/i }),
+    ).toBeVisible();
   });
 
   it("waits for settings hydration before mounting an incomplete setup form", async () => {
@@ -500,7 +579,7 @@ describe("options onboarding", () => {
     const harness = createHarness();
     await reachPreferences(harness);
 
-    expect(screen.getByRole("textbox", { name: /preferred language/i })).toHaveValue(
+    expect(screen.getByRole("combobox", { name: /preferred language/i })).toHaveValue(
       "Dutch",
     );
     expect(screen.getByRole("radio", { name: /everyday/i })).toBeChecked();
@@ -914,7 +993,7 @@ describe("options onboarding", () => {
       screen.getByRole("heading", { name: /explanation settings/i }),
     ).toBeVisible();
     expect(screen.getByRole("radio", { name: /Everyday:/ })).toBeChecked();
-    expect(screen.getByRole("textbox", { name: /explanation language/i })).toHaveValue(
+    expect(screen.getByRole("combobox", { name: /explanation language/i })).toHaveValue(
       "Dutch",
     );
     expect(
@@ -940,10 +1019,10 @@ describe("options onboarding", () => {
     const harness = createHarness();
     await reachSettings(harness);
 
-    const language = screen.getByRole("textbox", { name: /explanation language/i });
-    await userEvent.clear(language);
-    await userEvent.type(language, "Turkish");
-    await userEvent.click(screen.getByRole("button", { name: /save language/i }));
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /explanation language/i }),
+      "Turkish",
+    );
 
     await waitFor(() =>
       expect(harness.updates).toContainEqual({ preferredLanguage: "Turkish" }),

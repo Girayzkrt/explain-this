@@ -222,5 +222,5 @@ export function resolveLanguageName(value: string): string {
 
 /** The label shown in the picker: English name first, so type-ahead matches it. */
 export function languageLabel(entry: ReadingLanguage): string {
-  return entry.native ? entry.name + " \u2014 " + entry.native : entry.name;
+  return entry.native ? entry.name + " - " + entry.native : entry.name;
 }

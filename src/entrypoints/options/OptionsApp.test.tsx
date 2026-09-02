@@ -197,7 +197,6 @@ describe("options onboarding", () => {
     expect(
       screen.getByRole("progressbar", { name: /setup progress/i }),
     ).toHaveAttribute("max", "4");
-    expect(screen.getByText(/nothing leaves this computer/i)).toBeInTheDocument();
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "1Welcome",
       "2Local model",

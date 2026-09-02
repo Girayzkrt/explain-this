@@ -62,19 +62,6 @@ export function OptionsApp({ dependencies }: OptionsAppProps) {
           </p>
         </div>
 
-        <figure className="local-loop" aria-hidden="true">
-          <span className="loop-node">text</span>
-          <span className="loop-arrow">→</span>
-          <code className="loop-host">localhost</code>
-          <span className="loop-arrow">→</span>
-          <span className="loop-node">explanation</span>
-          <span className="loop-return">the explanation comes back</span>
-        </figure>
-        <p className="visually-hidden">
-          Your selected text goes to Ollama at localhost on this computer, and the
-          explanation comes back. Nothing leaves this computer.
-        </p>
-
         <ProgressBar
           label="Setup progress"
           max={SETUP_STEPS.length}

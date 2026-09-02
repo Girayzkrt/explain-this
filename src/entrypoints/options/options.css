@@ -161,78 +161,6 @@ code {
   line-height: 1.55;
 }
 
-.local-loop {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  gap: 0.3rem;
-  width: 100%;
-  margin: 0;
-  padding: 1.6rem 1.1rem 1.15rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--paper);
-  color: var(--slate);
-  font-size: var(--text-sm);
-}
-
-.local-loop::before {
-  content: "stays on this computer";
-  position: absolute;
-  top: -0.55rem;
-  left: 0.85rem;
-  padding: 0 0.4rem;
-  background: var(--paper);
-  color: var(--slate);
-  font-size: var(--text-label);
-  font-weight: 750;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-}
-
-.loop-arrow {
-  color: var(--cobalt);
-  font-size: 1.05rem;
-  line-height: 1;
-  transform: rotate(90deg);
-}
-
-.loop-node {
-  white-space: nowrap;
-}
-
-.loop-host {
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--cobalt);
-  border-radius: 5px;
-  color: var(--cobalt-dark);
-  background: var(--paper);
-}
-
-/* The return path closes the circuit without crossing the boundary above. */
-.loop-return {
-  justify-self: stretch;
-  margin-top: 0.9rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed var(--cobalt);
-  color: var(--cobalt-dark);
-  font-size: var(--text-label);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-align: center;
-  text-transform: uppercase;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-}
-
 .progress-block {
   display: grid;
   gap: 0.55rem;
@@ -728,10 +656,6 @@ fieldset {
 }
 
 @media (max-width: 480px) {
-  .local-loop {
-    gap: 0.25rem;
-  }
-
   .actions,
   .inline-field {
     align-items: stretch;
@@ -759,8 +683,7 @@ fieldset {
   .choice-row,
   .check-row,
   .readiness-result,
-  .error-notice,
-  .local-loop code {
+  .error-notice {
     border: 1px solid ButtonText;
   }
 

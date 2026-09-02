@@ -48,6 +48,7 @@ export type OnboardingState =
 
 type OnboardingAction =
   | { type: "hydrated"; completed: boolean }
+  | { type: "begin" }
   | { type: "check-runtime" }
   | { type: "mode"; mode: SelectedProvider }
   | {
@@ -104,14 +105,10 @@ function reduceOnboarding(
   switch (action.type) {
     case "hydrated":
       return { step: action.completed ? "settings" : "welcome" };
+    case "begin":
+      return { step: "choosing-mode" };
     case "check-runtime":
-      // From welcome, only advance to the mode choice — the runtime probe itself
-      // waits until chooseMode has persisted which mode to probe. Every other
-      // caller (origin-guidance retry, settings' "run setup again") keeps probing
-      // immediately, as before.
-      return state.step === "welcome"
-        ? { step: "choosing-mode" }
-        : { step: "checking-runtime" };
+      return { step: "checking-runtime" };
     case "mode":
       return { step: "checking-runtime" };
     case "back":
@@ -178,6 +175,7 @@ export interface OnboardingController {
   state: OnboardingState;
   preferences: ReadingPreferences;
   showOriginGuidance(): void;
+  begin(): void;
   checkRuntime(): void;
   chooseMode(mode: SelectedProvider): void;
   goBack(): void;
@@ -342,14 +340,14 @@ export function useOnboarding({
     };
   }, [connectionGeneration, createClient, handleEvent]);
 
+  const begin = useCallback((): void => {
+    dispatch({ type: "begin" });
+  }, []);
+
   const checkRuntime = useCallback((): void => {
     dispatch({ type: "check-runtime" });
-    // From welcome this only advances to the mode choice (handled in the
-    // reducer); probing the runtime before a mode is chosen would check the
-    // wrong provider. Every other caller still probes immediately.
-    if (state.step === "welcome") return;
     send({ type: "check-runtime" });
-  }, [send, state.step]);
+  }, [send]);
 
   const goBack = useCallback((): void => {
     dispatch({
@@ -490,6 +488,7 @@ export function useOnboarding({
     state,
     preferences,
     showOriginGuidance,
+    begin,
     checkRuntime,
     chooseMode,
     goBack,

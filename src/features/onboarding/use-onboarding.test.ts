@@ -94,7 +94,7 @@ describe("choosing how the model runs", () => {
     const { result } = renderOnboarding();
     await waitFor(() => expect(result.current.state.step).toBe("welcome"));
 
-    act(() => result.current.checkRuntime());
+    act(() => result.current.begin());
 
     expect(result.current.state.step).toBe("choosing-mode");
   });
@@ -107,7 +107,7 @@ describe("choosing how the model runs", () => {
     const harness = renderOnboarding();
     await waitFor(() => expect(harness.result.current.state.step).toBe("welcome"));
 
-    act(() => harness.result.current.checkRuntime());
+    act(() => harness.result.current.begin());
     act(() => harness.result.current.chooseMode("ollama-cloud"));
     act(() => {
       harness.client.emit({
@@ -124,5 +124,29 @@ describe("choosing how the model runs", () => {
     act(() => harness.result.current.goBack());
 
     expect(harness.result.current.state.step).toBe("choosing-mode");
+  });
+
+  test("still probes the runtime when retried from origin guidance", async () => {
+    const harness = renderOnboarding();
+    await waitFor(() => expect(harness.result.current.state.step).toBe("welcome"));
+
+    act(() => harness.result.current.begin());
+    act(() => harness.result.current.chooseMode("ollama-local"));
+    act(() => {
+      harness.client.emit({
+        type: "runtime-result",
+        health: {
+          available: false,
+          status: "origin-blocked",
+          secondaryAction: "show-origin-guidance",
+        },
+      });
+    });
+    expect(harness.result.current.state.step).toBe("origin-guidance");
+
+    act(() => harness.result.current.checkRuntime());
+
+    expect(harness.result.current.state.step).toBe("checking-runtime");
+    expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
   });
 });

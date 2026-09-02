@@ -127,7 +127,7 @@ function ActiveStep({
           <button
             className="button button-primary"
             type="button"
-            onClick={controller.checkRuntime}
+            onClick={controller.begin}
           >
             Start local setup
           </button>

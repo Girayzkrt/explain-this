@@ -108,3 +108,58 @@ describe("settings repository", () => {
     });
   });
 });
+
+describe("selectedProvider migration", () => {
+  // get() repairs unparseable settings by resetting to defaults, so without a migration an
+  // existing install would silently lose its language, level and blocked sites.
+  it("rewrites a stored ollama provider and keeps every other preference", async () => {
+    const storage = new MemoryStorageArea();
+    await storage.set({
+      settings: {
+        onboardingVersion: 1,
+        preferences: {
+          preferredLanguage: "Turkish",
+          explanationLevel: "technical",
+          preserveEnglishTerms: false,
+          includeNearbyContext: true,
+          selectedProvider: "ollama",
+          selectedModel: "gemma3:4b",
+          automaticToolbar: true,
+          blockedSites: ["example.com"],
+        },
+      },
+    });
+    const repository = createSettingsRepository(storage, () => "English");
+
+    const stored = await repository.get();
+
+    expect(stored.preferences.selectedProvider).toBe("ollama-local");
+    expect(stored.preferences.preferredLanguage).toBe("Turkish");
+    expect(stored.preferences.blockedSites).toEqual(["example.com"]);
+    expect(stored.onboardingVersion).toBe(1);
+  });
+
+  it("falls back to defaults for a provider value it does not recognise", async () => {
+    const storage = new MemoryStorageArea();
+    await storage.set({
+      settings: {
+        onboardingVersion: 1,
+        preferences: {
+          preferredLanguage: "Turkish",
+          explanationLevel: "technical",
+          preserveEnglishTerms: false,
+          includeNearbyContext: true,
+          selectedProvider: "anthropic",
+          selectedModel: "gemma3:4b",
+          automaticToolbar: true,
+          blockedSites: ["example.com"],
+        },
+      },
+    });
+    const repository = createSettingsRepository(storage, () => "English");
+
+    const stored = await repository.get();
+
+    expect(stored.preferences.selectedProvider).toBe("ollama-local");
+  });
+});

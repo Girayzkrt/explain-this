@@ -12,7 +12,7 @@ export const basePromptRequest: ReadingRequest = {
     explanationLevel: "everyday",
     preserveEnglishTerms: false,
     includeNearbyContext: false,
-    selectedProvider: "ollama",
+    selectedProvider: "ollama-local",
     selectedModel: "gemma3:4b",
     automaticToolbar: false,
     blockedSites: [],

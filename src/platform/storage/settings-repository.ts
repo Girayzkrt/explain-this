@@ -18,6 +18,20 @@ const PersistedSettingsSchema = z
   })
   .strict();
 
+/** The provider was a single literal before cloud mode existed. */
+function migrateStoredSettings(stored: unknown): unknown {
+  if (typeof stored !== "object" || stored === null) return stored;
+  const settings = stored as Record<string, unknown>;
+  const preferences = settings.preferences;
+  if (typeof preferences !== "object" || preferences === null) return stored;
+  const values = preferences as Record<string, unknown>;
+  if (values.selectedProvider !== "ollama") return stored;
+  return {
+    ...settings,
+    preferences: { ...values, selectedProvider: "ollama-local" },
+  };
+}
+
 export interface StoredSettings {
   onboardingVersion: OnboardingVersion;
   preferences: ReadingPreferences;
@@ -59,7 +73,9 @@ class LocalSettingsRepository implements SettingsRepository {
 
   async get(): Promise<StoredSettings> {
     const stored = await this.storage.get(SETTINGS_KEY);
-    const parsed = PersistedSettingsSchema.safeParse(stored[SETTINGS_KEY]);
+    const parsed = PersistedSettingsSchema.safeParse(
+      migrateStoredSettings(stored[SETTINGS_KEY]),
+    );
 
     if (!parsed.success) {
       const repaired = this.defaults();

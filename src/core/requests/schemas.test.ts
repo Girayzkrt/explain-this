@@ -7,7 +7,7 @@ const validPreferences = {
   explanationLevel: "everyday",
   preserveEnglishTerms: true,
   includeNearbyContext: false,
-  selectedProvider: "ollama",
+  selectedProvider: "ollama-local",
   selectedModel: "llama3.2",
   automaticToolbar: false,
   blockedSites: [],

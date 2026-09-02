@@ -3,12 +3,15 @@ import { RECOMMENDED_MODEL } from "../../shared/constants";
 
 export const ExplanationLevelSchema = z.enum(["everyday", "standard", "technical"]);
 
+export const SelectedProviderSchema = z.enum(["ollama-local", "ollama-cloud"]);
+export type SelectedProvider = z.infer<typeof SelectedProviderSchema>;
+
 export const ReadingPreferencesSchema = z.object({
   preferredLanguage: z.string().min(2).max(64),
   explanationLevel: ExplanationLevelSchema,
   preserveEnglishTerms: z.boolean(),
   includeNearbyContext: z.boolean(),
-  selectedProvider: z.literal("ollama"),
+  selectedProvider: SelectedProviderSchema,
   selectedModel: z.string().min(1).max(200),
   automaticToolbar: z.boolean(),
   blockedSites: z.array(z.string().min(1).max(255)).max(200),
@@ -21,7 +24,7 @@ export const DEFAULT_PREFERENCES: ReadingPreferences = {
   explanationLevel: "everyday",
   preserveEnglishTerms: true,
   includeNearbyContext: false,
-  selectedProvider: "ollama",
+  selectedProvider: "ollama-local",
   selectedModel: RECOMMENDED_MODEL,
   automaticToolbar: false,
   blockedSites: [],

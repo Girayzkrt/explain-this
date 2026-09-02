@@ -12,7 +12,7 @@ describe("reading settings", () => {
       explanationLevel: "everyday",
       preserveEnglishTerms: true,
       includeNearbyContext: false,
-      selectedProvider: "ollama",
+      selectedProvider: "ollama-local",
       selectedModel: "gemma3:4b",
       automaticToolbar: false,
       blockedSites: [],

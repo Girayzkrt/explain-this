@@ -859,4 +859,143 @@ describe("options onboarding", () => {
     ).toBeVisible();
     expect(screen.getByText("news.example", { selector: "code" })).toBeVisible();
   });
+
+  // Everything chosen during onboarding used to be frozen: the settings screen offered
+  // only blocked hosts and diagnostics, with no way to see or change a preference again.
+  async function reachSettings(harness: ReturnType<typeof createHarness>) {
+    await reachPermission(harness);
+    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
+    act(() => {
+      harness.client.emit({
+        type: "readiness-result",
+        result: {
+          status: "ready",
+          firstTokenMs: 900,
+          tokensPerSecond: 18,
+          warnings: [],
+        },
+      });
+    });
+    await userEvent.click(screen.getByRole("button", { name: /finish setup/i }));
+    harness.settings.onboardingVersion = 1;
+    act(() => harness.client.emit({ type: "onboarding-complete" }));
+  }
+
+  it("shows the saved reading preferences on the settings screen", async () => {
+    const harness = createHarness();
+    await reachSettings(harness);
+
+    expect(
+      screen.getByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+    expect(screen.getByRole("radio", { name: /Everyday:/ })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: /explanation language/i })).toHaveValue(
+      "Dutch",
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /include nearby context/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
+    ).not.toBeChecked();
+  });
+
+  it("changes the explanation level from settings", async () => {
+    const harness = createHarness();
+    await reachSettings(harness);
+
+    await userEvent.click(screen.getByRole("radio", { name: /Technical:/ }));
+
+    await waitFor(() =>
+      expect(harness.updates).toContainEqual({ explanationLevel: "technical" }),
+    );
+  });
+
+  it("changes the explanation language from settings", async () => {
+    const harness = createHarness();
+    await reachSettings(harness);
+
+    const language = screen.getByRole("textbox", { name: /explanation language/i });
+    await userEvent.clear(language);
+    await userEvent.type(language, "Turkish");
+    await userEvent.click(screen.getByRole("button", { name: /save language/i }));
+
+    await waitFor(() =>
+      expect(harness.updates).toContainEqual({ preferredLanguage: "Turkish" }),
+    );
+  });
+
+  it("turns nearby context on from settings", async () => {
+    const harness = createHarness();
+    await reachSettings(harness);
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /include nearby context/i }),
+    );
+
+    await waitFor(() =>
+      expect(harness.updates).toContainEqual({ includeNearbyContext: true }),
+    );
+  });
+
+  // The optional origin must be requested inside the click, exactly as onboarding does.
+  it("requests page access when the selection toolbar is switched on", async () => {
+    let requested = 0;
+    const harness = createHarness({
+      readerAccess: {
+        async requestAutomaticAccess() {
+          requested += 1;
+          return true;
+        },
+        async registerAutomaticAccess() {},
+        async disableAutomaticAccess() {},
+      },
+    });
+    await reachSettings(harness);
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
+    );
+
+    await waitFor(() => expect(requested).toBe(1));
+    await waitFor(() =>
+      expect(harness.updates).toContainEqual({ automaticToolbar: true }),
+    );
+  });
+
+  it("keeps the toolbar off and revokes access when the request is denied", async () => {
+    let disabled = 0;
+    const harness = createHarness({
+      readerAccess: {
+        async requestAutomaticAccess() {
+          return false;
+        },
+        async registerAutomaticAccess() {},
+        async disableAutomaticAccess() {
+          disabled += 1;
+        },
+      },
+    });
+    await reachSettings(harness);
+    const beforeSettings = disabled;
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /show the selection toolbar/i }),
+    );
+
+    await waitFor(() => expect(disabled).toBe(beforeSettings + 1));
+    await waitFor(() =>
+      expect(harness.updates).toContainEqual({ automaticToolbar: false }),
+    );
+  });
+
+  it("re-enters setup so the model and connection can be changed", async () => {
+    const harness = createHarness();
+    await reachSettings(harness);
+
+    await userEvent.click(screen.getByRole("button", { name: /run setup again/i }));
+
+    expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+    expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
+  });
 });

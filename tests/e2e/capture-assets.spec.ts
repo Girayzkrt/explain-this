@@ -105,4 +105,27 @@ test("captures the reader card, side panel and onboarding", async ({ e2e }) => {
     return true;
   }, `Use ${RECOMMENDED_MODEL}`);
   await options.screenshot({ path: "docs/assets/onboarding.png" });
+
+  // Settings, reached by hydrating a completed setup rather than walking onboarding.
+  await e2e.reset();
+  await e2e.extension.writeTrustedStorage(completedSettings);
+  const settings = await e2e.extension.openOptions();
+  await settings.setViewportSize({ width: 1100, height: 980 });
+  await settings.bringToFront();
+  await expect(
+    settings.getByRole("heading", { name: "Explanation settings" }),
+  ).toBeVisible();
+  await settings.waitForFunction(() => {
+    const heading = [...document.querySelectorAll("h3")].find(
+      (node) => node.textContent?.trim() === "Local model",
+    );
+    if (!heading) return false;
+    let node: HTMLElement | null = heading;
+    while (node) {
+      if (Number(getComputedStyle(node).opacity) < 1) return false;
+      node = node.parentElement;
+    }
+    return true;
+  });
+  await settings.screenshot({ path: "docs/assets/settings.png" });
 });

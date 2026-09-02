@@ -443,6 +443,35 @@ progress::-webkit-progress-value {
   gap: 0.6rem;
 }
 
+/* Each settings section is a distinct block so the screen reads as a short list of
+   decisions rather than one undifferentiated form. */
+.settings-group {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-group h3 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.settings-group .field-help {
+  max-width: 62ch;
+  margin: 0;
+}
+
+.settings-group fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 label,
 legend {
   color: var(--ink);

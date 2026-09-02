@@ -1,4 +1,4 @@
-import { Check, Download, Plus, Trash2 } from "lucide-react";
+import { Check, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatBytes, ProgressBar } from "../../components/ProgressBar";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
@@ -735,6 +735,45 @@ function SettingsStep({
   dependencies: OptionsAppDependencies;
 }) {
   const [blockedSites, setBlockedSites] = useState(controller.preferences.blockedSites);
+  const [language, setLanguage] = useState(controller.preferences.preferredLanguage);
+  const [toolbar, setToolbar] = useState(controller.preferences.automaticToolbar);
+  const [requesting, setRequesting] = useState(false);
+
+  async function settleToolbar(granted: boolean): Promise<void> {
+    if (granted) {
+      try {
+        await controller.updateSettings({ automaticToolbar: true });
+        await dependencies.readerAccess.registerAutomaticAccess();
+        setToolbar(true);
+        setRequesting(false);
+        return;
+      } catch {
+        // Fall through so the rollback below both persists and revokes.
+      }
+    }
+    await controller.updateSettings({ automaticToolbar: false }).catch(() => undefined);
+    await dependencies.readerAccess.disableAutomaticAccess().catch(() => undefined);
+    setToolbar(false);
+    setRequesting(false);
+  }
+
+  /** The optional origin must be requested inside the click, exactly as onboarding does. */
+  function toggleToolbar(): void {
+    if (toolbar) {
+      setToolbar(false);
+      void controller
+        .updateSettings({ automaticToolbar: false })
+        .then(() => dependencies.readerAccess.disableAutomaticAccess())
+        .catch(() => undefined);
+      return;
+    }
+    const request = dependencies.readerAccess.requestAutomaticAccess();
+    setRequesting(true);
+    void request.then(
+      (granted) => settleToolbar(granted),
+      () => settleToolbar(false),
+    );
+  }
   const [blockedHost, setBlockedHost] = useState("");
 
   async function addBlockedHost(): Promise<void> {
@@ -766,6 +805,127 @@ function SettingsStep({
         Setup is complete. These preferences stay on this computer and can be changed
         without repeating the readiness test.
       </p>
+
+      <div className="settings-group">
+        <h3>How explanations read</h3>
+        <fieldset>
+          <legend>Explanation level</legend>
+          <div className="radio-stack">
+            {(
+              [
+                ["everyday", "Everyday", "Plain language and short examples."],
+                ["standard", "Standard", "Balanced detail for general reading."],
+                ["technical", "Technical", "Precise terms and deeper detail."],
+              ] as const
+            ).map(([value, label, help]) => (
+              <label
+                className="choice-row"
+                htmlFor={`settings-level-${value}`}
+                key={value}
+                aria-label={`${label}: ${help}`}
+              >
+                <input
+                  id={`settings-level-${value}`}
+                  type="radio"
+                  name="settings-explanation-level"
+                  value={value}
+                  checked={controller.preferences.explanationLevel === value}
+                  onChange={() =>
+                    void controller.updateSettings({ explanationLevel: value })
+                  }
+                />
+                <span>
+                  <strong>{label}</strong>
+                  <small>{help}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <label htmlFor="settings-language">Explanation language</label>
+        <div className="inline-field">
+          <input
+            id="settings-language"
+            value={language}
+            maxLength={64}
+            minLength={2}
+            onChange={(event) => setLanguage(event.target.value)}
+          />
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={language.trim().length < 2}
+            onClick={() =>
+              void controller.updateSettings({ preferredLanguage: language.trim() })
+            }
+          >
+            <Check size={16} strokeWidth={2} aria-hidden="true" focusable="false" />
+            Save language
+          </button>
+        </div>
+
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={controller.preferences.preserveEnglishTerms}
+            onChange={(event) =>
+              void controller.updateSettings({
+                preserveEnglishTerms: event.target.checked,
+              })
+            }
+          />
+          <span>Keep established English technical terms recognisable</span>
+        </label>
+      </div>
+
+      <div className="settings-group">
+        <h3>What the model can see</h3>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={controller.preferences.includeNearbyContext}
+            onChange={(event) =>
+              void controller.updateSettings({
+                includeNearbyContext: event.target.checked,
+              })
+            }
+          />
+          <span>
+            Include nearby context — the nearest visible paragraphs around your
+            selection
+          </span>
+        </label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={toolbar}
+            disabled={requesting}
+            onChange={toggleToolbar}
+          />
+          <span>
+            Show the selection toolbar automatically — needs optional access to ordinary
+            pages
+          </span>
+        </label>
+      </div>
+
+      <div className="settings-group">
+        <h3>Local model</h3>
+        <p className="field-help">
+          Currently using <code>{controller.preferences.selectedModel}</code>. Changing
+          the model or the Ollama connection runs setup again from the runtime check.
+        </p>
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={() => controller.checkRuntime()}
+        >
+          <RefreshCw size={16} strokeWidth={1.9} aria-hidden="true" focusable="false" />
+          Run setup again
+        </button>
+      </div>
+
       <div className="blocked-editor">
         <h3>Sites where automatic actions stay off</h3>
         <p>Stored locally as hostnames only. Explicit invocation remains available.</p>

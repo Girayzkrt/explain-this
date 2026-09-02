@@ -115,11 +115,15 @@ menu keep working.
 
 ## Settings
 
-![Onboarding and settings](docs/assets/onboarding.png)
+![The settings screen](docs/assets/settings.png)
 
-Explanation level (everyday, standard, technical), preferred language, whether to preserve
-English technical terms, whether to include **nearby context**, whether to show the
-automatic toolbar, and a list of hostnames where the toolbar stays off.
+Everything you choose during setup stays editable: explanation level (everyday, standard,
+technical), the explanation language, whether to keep English technical terms, whether to
+include **nearby context**, whether the selection toolbar appears automatically, and a list
+of hostnames where it stays off.
+
+Changing the model or the Ollama connection runs setup again from the runtime check, so the
+readiness test still guards what you switch to.
 
 **Nearby context** is off by default. When on, the extension may include the nearest
 visible reading blocks around your selection — never hidden text, form values, scripts,

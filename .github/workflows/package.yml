@@ -1,0 +1,30 @@
+name: Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      # verify:package inspects the built directory that wxt zip archives, so the
+      # contents are verified before they are packed.
+      - run: npm run zip
+      - run: test -n "$(find .output -maxdepth 1 -name '*.zip' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: explain-this-chrome
+          path: .output/*.zip
+          if-no-files-found: error
+      # No Chrome Web Store submission and no secrets in the MVP; the artifact is an
+      # unsigned ZIP for manual review and upload.

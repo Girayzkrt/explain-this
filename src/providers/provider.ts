@@ -11,6 +11,11 @@ export interface ChatRequest {
   numCtx: number;
   numPredict: number;
   temperature: number;
+  topP: number;
+  topK: number;
+  repeatPenalty: number;
+  /** Guards against the model closing the prompt structure instead of stopping. */
+  stop: readonly string[];
   think: false;
   keepAlive: "5m";
 }

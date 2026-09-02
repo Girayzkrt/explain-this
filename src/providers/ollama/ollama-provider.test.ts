@@ -14,6 +14,10 @@ const chatRequest: ChatRequest = {
   numCtx: 4096,
   numPredict: 512,
   temperature: 0.2,
+  topP: 0.9,
+  topK: 40,
+  repeatPenalty: 1.1,
+  stop: ["</selected_text>"],
   think: false,
   keepAlive: "5m",
 };
@@ -370,7 +374,15 @@ describe("OllamaProvider", () => {
       stream: true,
       think: false,
       keep_alive: "5m",
-      options: { num_ctx: 4096, num_predict: 512, temperature: 0.2 },
+      options: {
+        num_ctx: 4096,
+        num_predict: 512,
+        temperature: 0.2,
+        top_p: 0.9,
+        top_k: 40,
+        repeat_penalty: 1.1,
+        stop: ["</selected_text>"],
+      },
     });
     expect(actualBody).not.toHaveProperty("tools");
   });
@@ -602,6 +614,30 @@ describe("OllamaProvider", () => {
         requestId: "request-idle",
         error: expect.objectContaining({ code: "STREAM_IDLE_TIMEOUT" }),
       },
+    });
+  });
+
+  it("sends the pinned sampling options to Ollama", async () => {
+    let body: Record<string, unknown> = {};
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return ndjsonResponse([
+          { message: { role: "assistant", content: "", thinking: "" }, done: true },
+        ]);
+      },
+    });
+
+    await collect(
+      provider.streamChat("request-1", chatRequest, new AbortController().signal),
+    );
+
+    expect(body.options).toMatchObject({
+      temperature: 0.2,
+      top_p: 0.9,
+      top_k: 40,
+      repeat_penalty: 1.1,
     });
   });
 

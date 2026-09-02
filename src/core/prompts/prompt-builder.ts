@@ -14,7 +14,22 @@ const SYSTEM_POLICY = [
   "Follow the requested language and explanation level.",
   "Raw HTML or executable output is unnecessary.",
   "Do not claim browsing, verification, or execution.",
+  "Reply with the finished answer only: no preamble, no restatement of the task,",
+  "no sign-off, and no meta commentary about what you are doing.",
 ].join(" ");
+
+/**
+ * Pinned so the same passage reads the same way twice. Measured against the shipped
+ * model: the form rule above is what removes the preamble, while these keep repeated
+ * runs stable and stop the model circling the same phrase.
+ */
+const SAMPLING = { topP: 0.9, topK: 40, repeatPenalty: 1.1 } as const;
+
+/**
+ * A real run appended "</nearby_context>" to an answer. With terse output the model
+ * sometimes continues the prompt structure, so stop before it can.
+ */
+const STOP = ["</selected_text>", "</nearby_context>", "</prior_answer>"] as const;
 
 function displayLevel(
   level: ReadingRequest["preferences"]["explanationLevel"],
@@ -84,6 +99,8 @@ export function buildChatRequest(request: ReadingRequest): ChatRequest {
     ],
     numCtx: DEFAULT_MODEL_PROFILE.numCtx,
     numPredict: outputTokenLimit(request),
+    ...SAMPLING,
+    stop: STOP,
     temperature:
       request.action === "translate" || request.action === "simplify" ? 0.2 : 0.4,
     think: false,

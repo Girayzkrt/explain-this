@@ -324,8 +324,8 @@ function ModelStep({
         <p className="field-label">Recommended for general reading</p>
         <h3>{RECOMMENDED_MODEL}</h3>
         <p>
-          Approximately 1.9 GB. Multilingual and balanced for everyday explanations on
-          desktop-class computers.
+          Approximately 3.3 GB. The only model measured here that stays usable across
+          the European languages this extension targets.
         </p>
         <button
           className="button button-primary"

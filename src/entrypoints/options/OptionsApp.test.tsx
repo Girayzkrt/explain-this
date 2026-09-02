@@ -506,7 +506,7 @@ describe("options onboarding", () => {
     await reachModelChoice(harness);
 
     expect(screen.getByText(RECOMMENDED_MODEL)).toBeVisible();
-    expect(screen.getByText(/approximately 1.9 GB/i)).toBeVisible();
+    expect(screen.getByText(/approximately 3.3 GB/i)).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: `Download ${RECOMMENDED_MODEL}` }),
     );

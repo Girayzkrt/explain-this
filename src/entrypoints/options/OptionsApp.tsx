@@ -28,7 +28,7 @@ import {
 import type { OnboardingClient } from "../../platform/messaging/onboarding-client";
 import type { ReaderAccessService } from "../../platform/permissions/reader-access";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
-import { RECOMMENDED_MODEL } from "../../shared/constants";
+import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../shared/constants";
 
 const SETUP_STEPS = ["Welcome", "Local model", "Preferences", "Ready"] as const;
 
@@ -343,7 +343,7 @@ function ModeStep({ controller }: { controller: OnboardingController }) {
           does not retain your data. Runs larger models with nothing to download.
         </p>
         <button
-          className="button button-secondary"
+          className="button button-primary"
           type="button"
           onClick={() => controller.chooseMode("ollama-cloud")}
         >
@@ -370,7 +370,7 @@ function CloudSigninStep({
           <code className="code-block">ollama signin</code>
         </li>
         <li>
-          <code className="code-block">ollama pull gpt-oss:120b-cloud</code>
+          <code className="code-block">ollama pull {RECOMMENDED_CLOUD_MODEL}</code>
         </li>
       </ol>
       <button className="button button-primary" type="button" onClick={onCheckAgain}>

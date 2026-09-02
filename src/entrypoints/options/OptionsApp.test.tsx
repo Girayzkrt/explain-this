@@ -19,7 +19,7 @@ import type {
   SettingsRepository,
   StoredSettings,
 } from "../../platform/storage/settings-repository";
-import { RECOMMENDED_MODEL } from "../../shared/constants";
+import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../shared/constants";
 import { OptionsApp, type OptionsAppDependencies } from "./OptionsApp";
 
 afterEach(cleanup);
@@ -529,6 +529,20 @@ describe("options onboarding", () => {
     expect(headings[0]).toHaveTextContent(/On this computer/i);
   });
 
+  // The reader is choosing between privacy and capability, not picking a recommended
+  // option — a styling difference between the two buttons would put a thumb on the
+  // scale even though the cards themselves are styled identically.
+  it("gives the local and cloud buttons identical styling", async () => {
+    createHarness();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /start local setup/i }),
+    );
+
+    const localButton = screen.getByRole("button", { name: /use this computer/i });
+    const cloudButton = screen.getByRole("button", { name: /use ollama cloud/i });
+    expect(localButton.className).toBe(cloudButton.className);
+  });
+
   it("shows both cloud sign-in commands and retries list-models with the mode intact", async () => {
     const harness = createHarness();
     await userEvent.click(
@@ -566,7 +580,9 @@ describe("options onboarding", () => {
       screen.getByRole("heading", { name: /sign in to ollama cloud/i }),
     ).toBeVisible();
     expect(screen.getByText("ollama signin", { selector: "code" })).toBeVisible();
-    expect(screen.getByText(/^ollama pull /, { selector: "code" })).toBeVisible();
+    expect(
+      screen.getByText(`ollama pull ${RECOMMENDED_CLOUD_MODEL}`, { selector: "code" }),
+    ).toBeVisible();
 
     const retryButton = screen.getByRole("button", { name: /check again/i });
     expect(retryButton).toBeVisible();

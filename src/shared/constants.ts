@@ -8,4 +8,8 @@ export const E2E_STREAM_TIMEOUT_MS =
     ? undefined
     : __EXPLAIN_THIS_E2E_STREAM_TIMEOUT_MS__;
 export const RECOMMENDED_MODEL = "gemma3:4b";
+/** Same family as RECOMMENDED_MODEL; not a reasoning model, unlike gpt-oss, which
+ * this project's evaluation corpus found unusable here (25/25 cases cut off
+ * mid-deliberation before an answer). See README.md's reasoning-model warning. */
+export const RECOMMENDED_CLOUD_MODEL = "gemma4:31b-cloud";
 export const ONBOARDING_VERSION = 1;

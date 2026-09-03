@@ -14,6 +14,7 @@ import type {
   OnboardingEvent,
 } from "../../features/onboarding/contracts";
 import { DEFAULT_PREFERENCES } from "../../features/settings/settings";
+import type { ReadingPreferences } from "../../features/settings/settings";
 import type { OnboardingClientConnection } from "../../features/onboarding/use-onboarding";
 import type {
   SettingsRepository,
@@ -1538,5 +1539,140 @@ describe("options onboarding", () => {
 
     expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
     expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
+  });
+
+  // Changing mode from Settings. Reaches "settings" directly (a returning, completed
+  // install) with a chosen provider/model baked into storage, rather than walking the
+  // full onboarding flow — the file's existing render helper (createHarness) with a
+  // custom settingsRepository stands in for the plan's `renderOptions({ state, preferences })`
+  // pseudocode, which this codebase never defines.
+  function reachSettingsWithPreferences(preferencesPatch: Partial<ReadingPreferences>) {
+    const stored = storedSettings(1);
+    stored.preferences = { ...stored.preferences, ...preferencesPatch };
+    const settingsUpdates: Array<Partial<ReadingPreferences>> = [];
+    const harness = createHarness({
+      settingsRepository: {
+        async get() {
+          return structuredClone(stored);
+        },
+        async update(patch) {
+          settingsUpdates.push(structuredClone(patch));
+          stored.preferences = { ...stored.preferences, ...patch };
+          return structuredClone(stored);
+        },
+        async markOnboardingComplete() {
+          return structuredClone(stored);
+        },
+      },
+    });
+    return { harness, settingsUpdates };
+  }
+
+  it("sends the reader back to model choice when the mode invalidates their model", async () => {
+    const { harness, settingsUpdates } = reachSettingsWithPreferences({
+      selectedProvider: "ollama-cloud",
+      selectedModel: "gemma4:26b-cloud",
+    });
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /use this computer/i }));
+
+    await waitFor(() =>
+      expect(settingsUpdates).toContainEqual({ selectedProvider: "ollama-local" }),
+    );
+    await waitFor(() =>
+      expect(harness.client.sent.at(-1)).toEqual({
+        type: "list-models",
+        mode: "ollama-local",
+      }),
+    );
+    act(() => {
+      harness.client.emit({
+        type: "models-result",
+        models: [
+          { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+          { id: "gemma4:26b-cloud", displayName: "gemma4:26b-cloud", origin: "cloud" },
+        ],
+      });
+    });
+
+    expect(
+      screen.getByRole("heading", { name: /choose a local model/i }),
+    ).toBeVisible();
+    expect(screen.getByText(/runs in Ollama's cloud/i)).toBeVisible();
+  });
+
+  it("keeps the current model when it is still valid in the new mode", async () => {
+    const { harness, settingsUpdates } = reachSettingsWithPreferences({
+      selectedProvider: "ollama-cloud",
+      selectedModel: "gemma3:4b",
+    });
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /use this computer/i }));
+
+    await waitFor(() =>
+      expect(settingsUpdates).toContainEqual({ selectedProvider: "ollama-local" }),
+    );
+    await waitFor(() =>
+      expect(harness.client.sent.at(-1)).toEqual({
+        type: "list-models",
+        mode: "ollama-local",
+      }),
+    );
+    act(() => {
+      harness.client.emit({
+        type: "models-result",
+        models: [{ id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" }],
+      });
+    });
+
+    expect(
+      screen.getByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+  });
+
+  // The onboarding service raises OLLAMA_SIGNIN_REQUIRED (not an empty models list) when
+  // cloud mode finds no cloud-origin model. Switching mode from Settings must route to the
+  // existing sign-in guidance screen instead of leaving the reader on a blank picker.
+  it("routes to cloud sign-in guidance rather than an empty picker when no cloud model is available", async () => {
+    const { harness, settingsUpdates } = reachSettingsWithPreferences({
+      selectedProvider: "ollama-local",
+      selectedModel: RECOMMENDED_MODEL,
+    });
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /use ollama cloud/i }));
+
+    await waitFor(() =>
+      expect(settingsUpdates).toContainEqual({ selectedProvider: "ollama-cloud" }),
+    );
+    await waitFor(() =>
+      expect(harness.client.sent.at(-1)).toEqual({
+        type: "list-models",
+        mode: "ollama-cloud",
+      }),
+    );
+    act(() => {
+      harness.client.emit({
+        type: "onboarding-failed",
+        error: {
+          code: "OLLAMA_SIGNIN_REQUIRED",
+          message:
+            "No Ollama Cloud models are available. Run `ollama signin`, then pull a cloud model.",
+          recoverable: true,
+        },
+      });
+    });
+
+    expect(
+      screen.getByRole("heading", { name: /sign in to ollama cloud/i }),
+    ).toBeVisible();
   });
 });

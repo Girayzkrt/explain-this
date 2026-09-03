@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  blocksRequest,
+  checkModeConsistency,
+} from "../../core/requests/mode-consistency";
 import type { OnboardingClient } from "../../platform/messaging/onboarding-client";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
 import type {
@@ -63,6 +67,7 @@ type OnboardingAction =
   | { type: "begin" }
   | { type: "check-runtime" }
   | { type: "mode"; mode: SelectedProvider }
+  | { type: "settings-mode"; mode: SelectedProvider }
   | {
       type: "runtime-missing";
       error: PublicErrorShape;
@@ -132,6 +137,15 @@ function reduceOnboarding(
       // The one place `mode` changes after hydration: synchronously, in the same
       // dispatch that advances `step`, so the two are never one render apart.
       return { step: "checking-runtime", mode: action.mode };
+    case "settings-mode":
+      // Settings' own mode change: unlike "mode", it must not advance `step` — the
+      // reader stays on Settings unless revalidation later finds the current model
+      // no longer fits. Still dispatched synchronously so `state.mode` (read by the
+      // rail milestone label) never lags a render behind, the same race "mode" was
+      // built to avoid.
+      return state.step === "settings"
+        ? { step: "settings", mode: action.mode }
+        : state;
     case "back":
       switch (state.step) {
         case "choosing-model":
@@ -216,6 +230,7 @@ export interface OnboardingController {
   begin(): void;
   checkRuntime(): void;
   chooseMode(mode: SelectedProvider): void;
+  changeMode(mode: SelectedProvider): void;
   goBack(): void;
   downloadModel(model: string): void;
   useInstalledModel(model: string): void;
@@ -261,6 +276,11 @@ export function useOnboarding({
   const clientRef = useRef<OnboardingClientConnection | undefined>(undefined);
   const resumableCommandRef = useRef<OnboardingCommand | undefined>(undefined);
   const retryCommandRef = useRef<OnboardingCommand | undefined>(undefined);
+  // Set only while a Settings mode change is waiting on its re-listed models, so the
+  // shared "models-result"/"onboarding-failed" handling below can tell that revalidation
+  // apart from the ordinary setup flow's list-models call, which always advances to
+  // "choosing-model" regardless of the outcome.
+  const revalidatingModeRef = useRef<SelectedProvider | undefined>(undefined);
   const [connectionGeneration, reconnect] = useReducer(
     (generation: number) => generation + 1,
     0,
@@ -336,11 +356,28 @@ export function useOnboarding({
             showOriginGuidance: event.health.secondaryAction === "show-origin-guidance",
           });
           return;
-        case "models-result":
+        case "models-result": {
           lastModelsRef.current = event.models;
           resumableCommandRef.current = undefined;
+          const revalidatingMode = revalidatingModeRef.current;
+          if (revalidatingMode !== undefined) {
+            revalidatingModeRef.current = undefined;
+            // The currently selected model, not `preferencesRef.current.selectedProvider`
+            // — that only updates after updateSettings' storage round trip and would
+            // reintroduce the exact race the milestone label was already fixed for.
+            const selected = event.models.find(
+              (model) => model.id === preferencesRef.current.selectedModel,
+            );
+            const origin = selected?.origin ?? "unknown";
+            if (blocksRequest(checkModeConsistency(revalidatingMode, origin))) {
+              dispatch({ type: "models", models: event.models });
+            }
+            // Otherwise the current model still fits the new mode: stay on Settings.
+            return;
+          }
           dispatch({ type: "models", models: event.models });
           return;
+        }
         case "download-progress":
           dispatch({ type: "download", progress: event.progress });
           if (event.progress.type === "completed") {
@@ -366,6 +403,7 @@ export function useOnboarding({
           return;
         case "onboarding-failed":
           resumableCommandRef.current = undefined;
+          revalidatingModeRef.current = undefined;
           if (event.error.code === "OLLAMA_SIGNIN_REQUIRED") {
             dispatch({ type: "cloud-signin-guidance", error: event.error });
             return;
@@ -507,6 +545,22 @@ export function useOnboarding({
     [send, updateSettings],
   );
 
+  const changeMode = useCallback(
+    (mode: SelectedProvider): void => {
+      // Dispatched synchronously, before the storage round trip, so `state.mode` (and
+      // anything reading it, like the rail milestone label) never lags a render behind
+      // the reader's click — the same fix `chooseMode` already applies for `preferences`.
+      dispatch({ type: "settings-mode", mode });
+      revalidatingModeRef.current = mode;
+      void updateSettings({ selectedProvider: mode })
+        .catch(() => undefined)
+        .then(() => {
+          send({ type: "list-models", mode });
+        });
+    },
+    [send, updateSettings],
+  );
+
   const retry = useCallback((): void => {
     const command = retryCommandRef.current;
     if (!command) return;
@@ -543,6 +597,7 @@ export function useOnboarding({
     begin,
     checkRuntime,
     chooseMode,
+    changeMode,
     goBack,
     downloadModel,
     useInstalledModel,

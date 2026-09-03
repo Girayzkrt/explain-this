@@ -350,9 +350,14 @@ function OriginStep({
   );
 }
 
-function ModeStep({ controller }: { controller: OnboardingController }) {
+/**
+ * The two mode-option cards, shared by the setup-time ModeStep and the Settings mode
+ * control. The disclosure copy is load-bearing and was reviewed for honesty, so it has
+ * exactly one source rather than a second wording that could drift from it.
+ */
+function ModeOptions({ onChoose }: { onChoose(mode: SelectedProvider): void }) {
   return (
-    <StepFrame eyebrow="Step 2 of 4" heading="Choose how it runs">
+    <>
       <div className="mode-option">
         <Laptop size={20} strokeWidth={1.9} aria-hidden="true" focusable="false" />
         <h3>On this computer</h3>
@@ -363,7 +368,7 @@ function ModeStep({ controller }: { controller: OnboardingController }) {
         <button
           className="button button-primary"
           type="button"
-          onClick={() => controller.chooseMode("ollama-local")}
+          onClick={() => onChoose("ollama-local")}
         >
           Use this computer
         </button>
@@ -379,11 +384,19 @@ function ModeStep({ controller }: { controller: OnboardingController }) {
         <button
           className="button button-primary"
           type="button"
-          onClick={() => controller.chooseMode("ollama-cloud")}
+          onClick={() => onChoose("ollama-cloud")}
         >
           Use Ollama Cloud
         </button>
       </div>
+    </>
+  );
+}
+
+function ModeStep({ controller }: { controller: OnboardingController }) {
+  return (
+    <StepFrame eyebrow="Step 2 of 4" heading="Choose how it runs">
+      <ModeOptions onChoose={controller.chooseMode} />
     </StepFrame>
   );
 }
@@ -1053,6 +1066,11 @@ function SettingsStep({
             pages
           </span>
         </label>
+      </div>
+
+      <div className="settings-group">
+        <h3>How it runs</h3>
+        <ModeOptions onChoose={controller.changeMode} />
       </div>
 
       <div className="settings-group">

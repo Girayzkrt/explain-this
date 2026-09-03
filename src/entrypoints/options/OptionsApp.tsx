@@ -901,7 +901,12 @@ function SettingsStep({
   controller: OnboardingController;
   dependencies: OptionsAppDependencies;
 }) {
-  const isCloudMode = controller.preferences.selectedProvider === "ollama-cloud";
+  // Reads state.mode, not preferences.selectedProvider: the same race the rail
+  // milestone label was fixed for (see the comment on OptionsApp's own modeChosen
+  // above) — updateSettings only resolves selectedProvider after a storage round trip,
+  // so this heading would still say the old mode for one render after changeMode's
+  // synchronous dispatch already flipped state.mode and the rail label alongside it.
+  const isCloudMode = controller.state.mode === "ollama-cloud";
   const [blockedSites, setBlockedSites] = useState(controller.preferences.blockedSites);
   const [language, setLanguage] = useState(() =>
     resolveLanguageName(controller.preferences.preferredLanguage),

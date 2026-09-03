@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import {
-  blocksRequest,
-  checkModeConsistency,
-} from "../../core/requests/mode-consistency";
+import { checkModeConsistency } from "../../core/requests/mode-consistency";
 import type { OnboardingClient } from "../../platform/messaging/onboarding-client";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
 import type {
@@ -279,7 +276,15 @@ export function useOnboarding({
   // Set only while a Settings mode change is waiting on its re-listed models, so the
   // shared "models-result"/"onboarding-failed" handling below can tell that revalidation
   // apart from the ordinary setup flow's list-models call, which always advances to
-  // "choosing-model" regardless of the outcome.
+  // "choosing-model" regardless of the outcome. This is the identity a response gets
+  // correlated against: `send` (below) clears it the moment any command other than this
+  // exact revalidation's own list-models goes out, because OnboardingService keeps only
+  // one active operation per port and silently drops a superseded command's response —
+  // so once something else has been sent, a later surviving response cannot be trusted
+  // as an answer to this particular revalidation. A cleared ref makes the "models-result"
+  // handler fall through to its ordinary, always-dispatch behavior, which is what
+  // guarantees a superseded revalidation still lands the reader somewhere with a way
+  // forward (Choose a model) instead of leaving them stranded.
   const revalidatingModeRef = useRef<SelectedProvider | undefined>(undefined);
   const [connectionGeneration, reconnect] = useReducer(
     (generation: number) => generation + 1,
@@ -311,6 +316,20 @@ export function useOnboarding({
       const { resumable = true, retryable = true } = options;
       if (resumable) resumableCommandRef.current = command;
       if (retryable) retryCommandRef.current = command;
+      // Any command other than a pending revalidation's own matching list-models
+      // supersedes that revalidation on the port (see the ref's own comment above) —
+      // including a second, later Settings mode change's list-models for a different
+      // mode. Clear it here, at the one place every command actually goes out, so the
+      // eventual "models-result" handler never misattributes a stray response to a
+      // revalidation intent that something else has already overtaken.
+      if (
+        revalidatingModeRef.current !== undefined &&
+        !(
+          command.type === "list-models" && command.mode === revalidatingModeRef.current
+        )
+      ) {
+        revalidatingModeRef.current = undefined;
+      }
       clientRef.current?.send(command);
     },
     [],
@@ -369,7 +388,12 @@ export function useOnboarding({
               (model) => model.id === preferencesRef.current.selectedModel,
             );
             const origin = selected?.origin ?? "unknown";
-            if (blocksRequest(checkModeConsistency(revalidatingMode, origin))) {
+            // Any non-"ok" result forces a re-pick, not only the one that blocks a
+            // request. ModelStep already disables and annotates every non-"ok" option in
+            // the picker, so a local model left selected in cloud mode is a combination
+            // the picker itself refuses to let anyone choose — Settings must not be the
+            // one place in the product that can hold a state the rest of it forbids.
+            if (checkModeConsistency(revalidatingMode, origin) !== "ok") {
               dispatch({ type: "models", models: event.models });
             }
             // Otherwise the current model still fits the new mode: stay on Settings.

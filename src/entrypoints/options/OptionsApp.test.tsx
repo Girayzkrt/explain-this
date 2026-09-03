@@ -1675,4 +1675,123 @@ describe("options onboarding", () => {
       screen.getByRole("heading", { name: /sign in to ollama cloud/i }),
     ).toBeVisible();
   });
+
+  // Interleaved-command coverage. OnboardingService keeps one active operation per port
+  // and silently drops a superseded command's response, so a Settings mode change whose
+  // persist write is still in flight when another command goes out must never leave the
+  // reader on a screen with no way forward. `reachSettingsWithDeferredUpdates` holds each
+  // settingsRepository.update() open until the test explicitly resolves it, so a second
+  // action can be injected into that window on purpose.
+  function reachSettingsWithDeferredUpdates(
+    preferencesPatch: Partial<ReadingPreferences>,
+  ) {
+    const stored = storedSettings(1);
+    stored.preferences = { ...stored.preferences, ...preferencesPatch };
+    const pending: Array<{
+      patch: Partial<ReadingPreferences>;
+      resolve: (settings: StoredSettings) => void;
+    }> = [];
+    const harness = createHarness({
+      settingsRepository: {
+        async get() {
+          return structuredClone(stored);
+        },
+        update(patch) {
+          return new Promise<StoredSettings>((resolve) => {
+            pending.push({ patch: structuredClone(patch), resolve });
+          });
+        },
+        async markOnboardingComplete() {
+          return structuredClone(stored);
+        },
+      },
+    });
+    function resolveNext(index: number): void {
+      const entry = pending[index];
+      if (!entry) throw new Error(`no pending settings update at index ${index}`);
+      stored.preferences = { ...stored.preferences, ...entry.patch };
+      entry.resolve(structuredClone(stored));
+    }
+    return { harness, pending, resolveNext };
+  }
+
+  it("still reaches a model picker when another command interleaves before mode revalidation resolves", async () => {
+    // selectedModel is deliberately a local-origin model that stays valid under the
+    // mode being switched to ("ollama-local"): the eventual consistency check comes back
+    // "ok", which is exactly the case an unguarded ref would answer with "stay put" —
+    // silently leaving the reader on whatever step the intervening command left them on.
+    const { harness, resolveNext } = reachSettingsWithDeferredUpdates({
+      selectedProvider: "ollama-cloud",
+      selectedModel: "gemma3:4b",
+    });
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /use this computer/i }));
+    // The mode's persist write hasn't resolved yet, so nothing has been sent for the
+    // revalidation — this is the storage-latency window the finding describes.
+    expect(harness.client.sent).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole("button", { name: /run setup again/i }));
+    expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+    expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
+
+    // The deferred mode-change persist now resolves, sending its own list-models after
+    // check-runtime — which supersedes it on the port. Its runtime-result is dropped by
+    // the service and never arrives here; only the surviving list-models response does.
+    await act(async () => resolveNext(0));
+    expect(harness.client.sent.at(-1)).toEqual({
+      type: "list-models",
+      mode: "ollama-local",
+    });
+
+    act(() => {
+      harness.client.emit({
+        type: "models-result",
+        models: [{ id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" }],
+      });
+    });
+
+    // Rescued onto a real screen with a way forward, not stuck on "Checking Ollama".
+    expect(
+      screen.getByRole("heading", { name: /choose a local model/i }),
+    ).toBeVisible();
+  });
+
+  it("still reaches a model picker after two rapid mode switches", async () => {
+    const { harness, pending, resolveNext } = reachSettingsWithDeferredUpdates({
+      selectedProvider: "ollama-local",
+      selectedModel: RECOMMENDED_MODEL,
+    });
+    expect(
+      await screen.findByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /use ollama cloud/i }));
+    await userEvent.click(screen.getByRole("button", { name: /use this computer/i }));
+    expect(pending).toHaveLength(2);
+
+    // Both persisted writes eventually settle — order does not matter here, since only
+    // the second switch's own list-models can ever survive uncleared on the port, and
+    // state.mode was already pinned to "ollama-local" by the second click's synchronous
+    // dispatch regardless of resolution order.
+    await act(async () => resolveNext(0));
+    await act(async () => resolveNext(1));
+    expect(harness.client.sent.at(-1)).toEqual({
+      type: "list-models",
+      mode: "ollama-local",
+    });
+
+    act(() => {
+      harness.client.emit({
+        type: "models-result",
+        models: [{ id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" }],
+      });
+    });
+
+    expect(
+      screen.getByRole("heading", { name: /choose a local model/i }),
+    ).toBeVisible();
+  });
 });

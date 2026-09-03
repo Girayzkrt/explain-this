@@ -32,6 +32,7 @@ import {
   initializeStorageAccess,
 } from "../platform/storage/storage-area";
 import { OllamaProvider } from "../providers/ollama/ollama-provider";
+import type { DownloadableModelProvider } from "../providers/provider";
 import { E2E_STREAM_TIMEOUT_MS, OLLAMA_BASE_URL } from "../shared/constants";
 
 const STORAGE_UNAVAILABLE = new Error("Trusted extension storage is unavailable.");
@@ -85,6 +86,27 @@ function withSessionStorageReadiness(
   };
 }
 
+/**
+ * The reader now sizes `firstTokenTimeoutMs` per request to the mode that is running
+ * (see `firstTokenBudgetMs` in `src/shared/constants.ts`), which would otherwise
+ * override the fixed timeout the e2e package relies on to fail fast. This keeps the
+ * e2e override winning over both the provider's own default and the mode-derived
+ * value by stamping every outgoing request with it.
+ */
+function withFixedFirstTokenTimeout(
+  provider: DownloadableModelProvider,
+  firstTokenTimeoutMs: number,
+): DownloadableModelProvider {
+  return {
+    checkHealth: (signal) => provider.checkHealth(signal),
+    listModels: (signal) => provider.listModels(signal),
+    getModelDetails: (model, signal) => provider.getModelDetails(model, signal),
+    streamChat: (requestId, request, signal) =>
+      provider.streamChat(requestId, { ...request, firstTokenTimeoutMs }, signal),
+    downloadModel: (model, signal) => provider.downloadModel(model, signal),
+  };
+}
+
 function createProductionBackgroundDependencies(
   storageReadiness: Promise<boolean>,
 ): BackgroundDependencies & { onboardingService: OnboardingService } {
@@ -98,15 +120,16 @@ function createProductionBackgroundDependencies(
     storageReadiness,
   );
   const readerAccess = new ReaderAccessController(readerBrowserApi);
-  const provider = new OllamaProvider({
+  const ollamaProvider = new OllamaProvider({
     baseUrl: OLLAMA_BASE_URL,
     ...(E2E_STREAM_TIMEOUT_MS === undefined
       ? {}
-      : {
-          firstTokenTimeoutMs: E2E_STREAM_TIMEOUT_MS,
-          idleTimeoutMs: E2E_STREAM_TIMEOUT_MS,
-        }),
+      : { idleTimeoutMs: E2E_STREAM_TIMEOUT_MS }),
   });
+  const provider: DownloadableModelProvider =
+    E2E_STREAM_TIMEOUT_MS === undefined
+      ? ollamaProvider
+      : withFixedFirstTokenTimeout(ollamaProvider, E2E_STREAM_TIMEOUT_MS);
   const modelGate = new ModelConcurrencyGate();
   const coordinator = new RequestCoordinator({
     provider,

@@ -180,9 +180,14 @@ export class OllamaProvider implements DownloadableModelProvider {
     let parser: AsyncGenerator<OllamaChatChunk> | undefined;
     let completedNormally = false;
 
+    // A per-request budget (see ChatRequest.firstTokenTimeoutMs) overrides this
+    // provider's constructor default, so the same instance can serve both local and
+    // cloud modes without being rebuilt when the mode changes.
+    const firstTokenTimeoutMs = request.firstTokenTimeoutMs ?? this.firstTokenTimeoutMs;
+
     try {
       yield { type: "started", requestId };
-      const firstTokenDeadline = Date.now() + this.firstTokenTimeoutMs;
+      const firstTokenDeadline = Date.now() + firstTokenTimeoutMs;
       response = await this.fetchWithConnectionTimeout(
         "api/chat",
         {
@@ -207,7 +212,7 @@ export class OllamaProvider implements DownloadableModelProvider {
           }),
         },
         operation.controller,
-        this.firstTokenTimeoutMs,
+        firstTokenTimeoutMs,
         () =>
           timeoutError(
             "FIRST_TOKEN_TIMEOUT",

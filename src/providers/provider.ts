@@ -18,6 +18,13 @@ export interface ChatRequest {
   stop: readonly string[];
   think: false;
   keepAlive: "5m";
+  /**
+   * Overrides the provider's constructor default for this request only, so the caller
+   * can size the wait for the first token to the mode actually running (see
+   * `firstTokenBudgetMs` in `src/shared/constants.ts`). Absent, the provider keeps its
+   * own default.
+   */
+  firstTokenTimeoutMs?: number;
 }
 
 export interface PublicErrorShape {

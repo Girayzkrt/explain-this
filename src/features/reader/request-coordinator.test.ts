@@ -18,6 +18,7 @@ import type {
 import { createSessionRepository } from "../../platform/storage/session-repository";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
 import { MemoryStorageArea } from "../../../tests/support/memory-storage";
+import { firstTokenBudgetMs } from "../../shared/constants";
 import { RequestCoordinator } from "./request-coordinator";
 
 const REQUEST_1 = "123e4567-e89b-42d3-a456-426614174001";
@@ -642,6 +643,31 @@ describe("RequestCoordinator", () => {
       await expect(sessionRepository.getReaderSession(TAB_ID)).resolves.toMatchObject({
         provider: selectedProvider,
       });
+    },
+  );
+
+  it.each(["ollama-local", "ollama-cloud"] as const)(
+    "sizes the provider's first-token budget to the selected mode (%s)",
+    async (selectedProvider) => {
+      const { coordinator, provider } = createHarness({
+        ...DEFAULT_PREFERENCES,
+        selectedProvider,
+      });
+      const port = new TestPort();
+      provider.plans.push(
+        finitePlan([
+          { type: "started", requestId: REQUEST_1 },
+          { type: "completed", requestId: REQUEST_1 },
+        ]),
+      );
+
+      coordinator.handle(port, sender());
+      port.send({ type: "start-request", request: request() });
+
+      await waitForCalls(provider, 1);
+      expect(provider.calls[0]?.request.firstTokenTimeoutMs).toBe(
+        firstTokenBudgetMs(selectedProvider),
+      );
     },
   );
 

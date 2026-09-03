@@ -20,10 +20,12 @@ import type { PortLike, TrustedPortSender } from "../../platform/messaging/port"
 import type { SessionRepository } from "../../platform/storage/session-repository";
 import type { SettingsRepository } from "../../platform/storage/settings-repository";
 import type {
+  ChatRequest,
   LlmProvider,
   PublicErrorShape,
   StreamEvent,
 } from "../../providers/provider";
+import { firstTokenBudgetMs } from "../../shared/constants";
 import {
   capDisplayCharacters,
   MAX_SELECTION_PREVIEW_CHARACTERS,
@@ -435,7 +437,10 @@ export class RequestCoordinator {
         return;
       }
       this.post(context.port, { type: "session-snapshot", session });
-      const chatRequest = buildChatRequest(request);
+      const chatRequest: ChatRequest = {
+        ...buildChatRequest(request),
+        firstTokenTimeoutMs: firstTokenBudgetMs(request.preferences.selectedProvider),
+      };
       void this.runGeneration(
         generation,
         session,

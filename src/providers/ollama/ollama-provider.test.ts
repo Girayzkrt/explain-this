@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PublicError } from "../../core/requests/public-error";
+import { firstTokenBudgetMs } from "../../shared/constants";
 import type { ChatRequest } from "../provider";
 import { OllamaProvider, createOllamaProvider } from "./ollama-provider";
 
@@ -721,5 +722,76 @@ describe("OllamaProvider", () => {
       type: "failed",
       error: { code: "FIRST_TOKEN_TIMEOUT" },
     });
+  });
+
+  it("uses the per-request firstTokenTimeoutMs when the request provides one", async () => {
+    vi.useFakeTimers();
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async () => openNdjsonResponse([], () => undefined),
+      firstTokenTimeoutMs: 5_000,
+      idleTimeoutMs: 500,
+      overallTimeoutMs: 10_000,
+    });
+    const events = provider.streamChat(
+      "request-per-request-budget",
+      { ...chatRequest, firstTokenTimeoutMs: 50 },
+      new AbortController().signal,
+    );
+    const iterator = events[Symbol.asyncIterator]();
+
+    await iterator.next();
+    const pending = iterator.next();
+    await vi.advanceTimersByTimeAsync(51);
+
+    await expect(pending).resolves.toEqual({
+      done: false,
+      value: {
+        type: "failed",
+        requestId: "request-per-request-budget",
+        error: expect.objectContaining({ code: "FIRST_TOKEN_TIMEOUT" }),
+      },
+    });
+  });
+
+  it("falls back to the constructor firstTokenTimeoutMs when the request omits it", async () => {
+    vi.useFakeTimers();
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async () => openNdjsonResponse([], () => undefined),
+      firstTokenTimeoutMs: 50,
+      idleTimeoutMs: 500,
+      overallTimeoutMs: 10_000,
+    });
+    const events = provider.streamChat(
+      "request-constructor-fallback",
+      chatRequest,
+      new AbortController().signal,
+    );
+    const iterator = events[Symbol.asyncIterator]();
+
+    await iterator.next();
+    const pending = iterator.next();
+    await vi.advanceTimersByTimeAsync(51);
+
+    await expect(pending).resolves.toEqual({
+      done: false,
+      value: {
+        type: "failed",
+        requestId: "request-constructor-fallback",
+        error: expect.objectContaining({ code: "FIRST_TOKEN_TIMEOUT" }),
+      },
+    });
+  });
+});
+
+describe("firstTokenBudgetMs", () => {
+  // Locally the wait is model loading, measured at 30656 ms for a cold gemma3:4b. In the
+  // cloud nothing loads, so the same budget would hide a stalled request for far too long.
+  it("gives local mode room to load a model and cloud mode much less", () => {
+    expect(firstTokenBudgetMs("ollama-local")).toBeGreaterThanOrEqual(45_000);
+    expect(firstTokenBudgetMs("ollama-cloud")).toBeLessThan(
+      firstTokenBudgetMs("ollama-local"),
+    );
   });
 });

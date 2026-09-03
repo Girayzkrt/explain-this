@@ -552,7 +552,7 @@ function ModelStep({
   );
 }
 
-function DownloadStep({
+export function DownloadStep({
   onCancel,
   state,
   selectedProvider,

@@ -20,7 +20,7 @@ import type {
   StoredSettings,
 } from "../../platform/storage/settings-repository";
 import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../shared/constants";
-import { OptionsApp, type OptionsAppDependencies } from "./OptionsApp";
+import { DownloadStep, OptionsApp, type OptionsAppDependencies } from "./OptionsApp";
 
 afterEach(cleanup);
 
@@ -962,6 +962,40 @@ describe("options onboarding", () => {
     expect(screen.getByText(/preparing/i)).toBeVisible();
     expect(screen.queryByText(/NaN/)).toBeNull();
     expect(screen.queryByText(/%/)).toBeNull();
+  });
+
+  // DownloadStep is a pure function of its props. The onboarding flow cannot currently
+  // reach the "downloading" step in Ollama Cloud mode — ModelStep only calls
+  // downloadModel once a cloud model is already installed, at which point it calls
+  // useInstalledModel instead — but that gating is incidental to the current UI wiring,
+  // not a guarantee, and the component already branches its copy on selectedProvider.
+  // Render it directly so a swapped ternary in the cloud copy cannot go untested.
+  it("uses cloud-mode copy when DownloadStep renders for Ollama Cloud", () => {
+    render(
+      <DownloadStep
+        onCancel={() => {}}
+        selectedProvider="ollama-cloud"
+        state={{
+          step: "downloading",
+          mode: "ollama-cloud",
+          progress: {
+            type: "progress",
+            model: RECOMMENDED_CLOUD_MODEL,
+            completedBytes: 0,
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: /^downloading the model$/i }),
+    ).toBeVisible();
+    expect(screen.getByText(/^preparing$/i)).toBeVisible();
+    expect(screen.getByText(/ollama runs this model in its cloud/i)).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/preparing local download/i);
+    expect(document.body.textContent).not.toMatch(
+      /ollama stores this model on your computer/i,
+    );
   });
 
   it("moves keyboard focus to the active step heading after a transition", async () => {

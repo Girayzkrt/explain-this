@@ -26,6 +26,12 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
     explanation: "Ollama rejected the extension’s local request.",
     primaryAction: { intent: "show-origin-steps", label: "Show origin steps" },
   },
+  OLLAMA_CLOUD_DISABLED: {
+    title: "Ollama Cloud is turned off",
+    explanation:
+      "This model runs in Ollama’s cloud, but cloud is disabled in Ollama. Turn it on, or choose a model that runs on this computer.",
+    primaryAction: { intent: "choose-model", label: "Choose model" },
+  },
   OLLAMA_SIGNIN_REQUIRED: {
     title: "Sign in to Ollama Cloud",
     explanation:

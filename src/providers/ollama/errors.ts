@@ -1,15 +1,53 @@
 import { PublicError } from "../../core/requests/public-error";
 import type { PublicErrorShape } from "../provider";
 
-export function mapOllamaResponseError(
+/** Long enough for Ollama’s one-line error JSON, short enough to never be a buffer. */
+const ERROR_BODY_LIMIT = 512;
+/** An error body is a courtesy. A stalled one must never outlive the error it explains. */
+const ERROR_BODY_TIMEOUT_MS = 200;
+
+/**
+ * Reads just enough of an error body to classify it, then always cancels the stream.
+ * Ollama can answer with a body that never arrives, so an unbounded read here would
+ * hang the request forever in place of reporting the error it was called to describe.
+ */
+async function readErrorBody(response: Response): Promise<string> {
+  const body = response.body;
+  if (!body) {
+    try {
+      return await response.text();
+    } catch {
+      return "";
+    }
+  }
+
+  const reader = body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const chunk = await Promise.race([
+      reader.read(),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), ERROR_BODY_TIMEOUT_MS);
+      }),
+    ]);
+    if (!chunk || chunk.done || !chunk.value) return "";
+    return new TextDecoder().decode(chunk.value).slice(0, ERROR_BODY_LIMIT);
+  } catch {
+    return "";
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
+/** Ollama says this, verbatim, when a cloud model is used while cloud is switched off. */
+const CLOUD_DISABLED = /cloud is disabled/iu;
+
+export async function mapOllamaResponseError(
   response: Response,
   operation: "request" | "download" = "request",
-): PublicError {
-  // 401 is the observed shape for an expired or missing Ollama Cloud session. 403 is
-  // left mapped to OLLAMA_ORIGIN_BLOCKED below and deliberately not folded in here:
-  // origin-blocking is real and common in local mode too, and the spec calls for
-  // narrowing this mapping only once the real unauthenticated response shape has been
-  // observed against a signed-in installation — which 401 now is.
+): Promise<PublicError> {
+  // 401 is the observed shape for an expired or missing Ollama Cloud session.
   if (response.status === 401) {
     return new PublicError(
       "OLLAMA_SIGNIN_REQUIRED",
@@ -18,6 +56,16 @@ export function mapOllamaResponseError(
     );
   }
   if (response.status === 403) {
+    // Both an origin rejection and a disabled-cloud refusal arrive as 403, and they
+    // need opposite advice: one is fixed in OLLAMA_ORIGINS, the other by turning cloud
+    // on or choosing a model that runs here. Only the body tells them apart.
+    if (CLOUD_DISABLED.test(await readErrorBody(response))) {
+      return new PublicError(
+        "OLLAMA_CLOUD_DISABLED",
+        "Ollama Cloud is turned off in Ollama.",
+        true,
+      );
+    }
     return new PublicError(
       "OLLAMA_ORIGIN_BLOCKED",
       "Ollama blocked the extension origin.",

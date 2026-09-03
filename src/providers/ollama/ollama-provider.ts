@@ -144,7 +144,7 @@ export class OllamaProvider implements DownloadableModelProvider {
         },
         operation.controller,
       );
-      if (!response.ok) throw mapOllamaResponseError(response);
+      if (!response.ok) throw await mapOllamaResponseError(response);
 
       const ollamaDetails = ollamaModelDetailsSchema.parse(await response.json());
       const details: ModelDetails = {
@@ -219,7 +219,7 @@ export class OllamaProvider implements DownloadableModelProvider {
             "Ollama did not start responding in time.",
           ),
       );
-      if (!response.ok) throw mapOllamaResponseError(response);
+      if (!response.ok) throw await mapOllamaResponseError(response);
 
       parser = parseNdjson(
         responseBody(response),
@@ -315,7 +315,7 @@ export class OllamaProvider implements DownloadableModelProvider {
         },
         operation.controller,
       );
-      if (!response.ok) throw mapOllamaResponseError(response, "download");
+      if (!response.ok) throw await mapOllamaResponseError(response, "download");
 
       parser = parseNdjson(
         responseBody(response),
@@ -398,7 +398,7 @@ export class OllamaProvider implements DownloadableModelProvider {
         { method: "GET", credentials: "omit" },
         operation.controller,
       );
-      if (!response.ok) throw mapOllamaResponseError(response);
+      if (!response.ok) throw await mapOllamaResponseError(response);
       const tags = ollamaTagsSchema.parse(await response.json());
       completedNormally = true;
       return tags;

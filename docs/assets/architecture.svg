@@ -4,7 +4,7 @@
   <rect width="880" height="470" fill="#ffffff"/>
   <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif">
     <text x="24" y="34" font-size="17" font-weight="600" fill="#1f2328">Explain This — component architecture</text>
-    <text x="24" y="55" font-size="12.5" fill="#656d76">All model access is confined to the background service worker. Nothing leaves the device.</text>
+    <text x="24" y="55" font-size="12.5" fill="#656d76">All model access is confined to the background service worker, which talks only to loopback.</text>
 
     <!-- Web page -->
     <rect x="24" y="80" width="250" height="150" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
@@ -49,9 +49,9 @@
     <rect x="666" y="150" width="190" height="120" rx="8" fill="#dafbe1" stroke="#2da44e"/>
     <text x="682" y="176" font-size="13" font-weight="600" fill="#1f2328">Ollama</text>
     <text x="682" y="198" font-size="12" fill="#1a7f37">127.0.0.1:11434</text>
-    <text x="682" y="219" font-size="11.5" fill="#656d76">On your machine.</text>
-    <text x="682" y="234" font-size="11.5" fill="#656d76">The only network</text>
-    <text x="682" y="249" font-size="11.5" fill="#656d76">destination.</text>
+    <text x="682" y="219" font-size="11.5" fill="#656d76">Only host the extension</text>
+    <text x="682" y="234" font-size="11.5" fill="#656d76">talks to. Forwards to</text>
+    <text x="682" y="249" font-size="11.5" fill="#656d76">its cloud, if chosen.</text>
 
     <!-- Arrows -->
     <defs>
@@ -67,6 +67,6 @@
 
     <text x="24" y="410" font-size="11.5" fill="#656d76">The reader surface never receives an endpoint, a prompt, or a provider handle — only typed messages.</text>
     <text x="24" y="429" font-size="11.5" fill="#656d76">The side panel can read the safe session snapshot, never the private source envelope.</text>
-    <text x="24" y="448" font-size="11.5" fill="#656d76">No telemetry, no analytics, no remote endpoint of any kind.</text>
+    <text x="24" y="448" font-size="11.5" fill="#656d76">No telemetry, no analytics — the extension itself has no remote endpoint of its own.</text>
   </g>
 </svg>

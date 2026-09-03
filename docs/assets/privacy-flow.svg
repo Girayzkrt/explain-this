@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 400" width="880" height="400" role="img" aria-labelledby="ptitle pdesc">
-  <title id="ptitle">Explain This local-only data flow</title>
-  <desc id="pdesc">Selected text and optional nearby context go to a local Ollama server on loopback. Hidden text, form values, scripts, navigation and distant page content are excluded. Nothing reaches the internet.</desc>
+  <title id="ptitle">Explain This data flow, by mode</title>
+  <desc id="pdesc">Selected text and optional nearby context go to a local Ollama server on loopback — the only host the extension itself ever talks to. Hidden text, form values, scripts, navigation and distant page content are excluded. In the default On this computer mode, nothing reaches the internet. In Ollama Cloud mode, chosen at setup, Ollama itself forwards your selection on to its own cloud servers.</desc>
   <rect width="880" height="400" fill="#ffffff"/>
   <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif">
     <text x="24" y="34" font-size="17" font-weight="600" fill="#1f2328">Where your reading actually goes</text>
-    <text x="24" y="55" font-size="12.5" fill="#656d76">Everything below happens on your computer.</text>
+    <text x="24" y="55" font-size="12.5" fill="#656d76">By default, everything below happens on your computer — Ollama Cloud is opt-in.</text>
 
     <!-- Page -->
     <rect x="24" y="80" width="236" height="234" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
@@ -37,8 +37,8 @@
     <text x="632" y="144" font-size="13" font-weight="600" fill="#1f2328">Ollama, on your machine</text>
     <text x="632" y="168" font-size="12.5" fill="#1a7f37">127.0.0.1:11434</text>
     <text x="632" y="192" font-size="11.5" fill="#656d76">Generates the explanation</text>
-    <text x="632" y="210" font-size="11.5" fill="#656d76">locally, using the model</text>
-    <text x="632" y="228" font-size="11.5" fill="#656d76">you installed yourself</text>
+    <text x="632" y="210" font-size="11.5" fill="#656d76">using the model you chose</text>
+    <text x="632" y="228" font-size="11.5" fill="#656d76">at setup — local or cloud</text>
 
     <defs>
       <marker id="parrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
@@ -56,7 +56,7 @@
     <!-- Internet, blocked -->
     <rect x="616" y="296" width="240" height="64" rx="8" fill="#ffebe9" stroke="#cf222e" stroke-dasharray="6 4"/>
     <text x="632" y="322" font-size="13" font-weight="600" fill="#a40e26">The internet</text>
-    <text x="632" y="343" font-size="11.5" fill="#a40e26">No request ever goes here.</text>
+    <text x="632" y="343" font-size="11.5" fill="#a40e26">Not directly — only via Ollama.</text>
     <line x1="736" y1="274" x2="736" y2="292" stroke="#cf222e" stroke-width="1.6" marker-end="url(#pblock)"/>
     <line x1="726" y1="278" x2="746" y2="288" stroke="#cf222e" stroke-width="2.4"/>
     <line x1="746" y1="278" x2="726" y2="288" stroke="#cf222e" stroke-width="2.4"/>

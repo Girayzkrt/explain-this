@@ -64,12 +64,53 @@ start, or update it.
    ollama pull gemma3:4b
    ```
 
-3. Install the extension, then open its options page and follow setup. It checks that
-   Ollama is reachable, confirms the model, and asks for your reading preferences.
+3. Build the extension and load it:
+
+   ```bash
+   npm ci && npm run build
+   ```
+
+   Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked**, and
+   select the `.output/chrome-mv3` folder. This MVP is not on the Chrome Web Store.
+
+4. Allow the extension in Ollama. Ollama rejects requests from origins it does not know,
+   so setup will stop with **Allow this extension in Ollama** and show you the exact
+   command for your install — the extension's ID is part of it, so copy it from that
+   screen rather than guessing:
+
+   ```bash
+   setx OLLAMA_ORIGINS "chrome-extension://YOUR_EXTENSION_ID"
+   ```
+
+   Then **restart Ollama completely** — quit it from the tray and start it again. It reads
+   `OLLAMA_ORIGINS` only at startup, so skipping the restart looks exactly like the
+   setting not working.
+
+5. Return to the options page and finish setup. It confirms the model and asks for your
+   reading preferences.
+
+Chrome derives an unpacked extension's ID from its folder path, so loading a different
+build directory — `.output/chrome-mv3-dev` from `npm run dev`, say — produces a different
+ID that Ollama will reject until you add it too. You can list several, separated by
+commas.
 
 Setup never sends page text. The readiness check does generate one real, harmless sample
 explanation to confirm the model works — in Ollama Cloud mode, that sample reaches
 Ollama's servers, exactly as any explanation would in that mode.
+
+### Using Ollama Cloud instead
+
+Ollama Cloud runs larger models on Ollama's servers, reached through your local Ollama —
+so the extension still only talks to `127.0.0.1`, but **your selected text leaves your
+machine**. To use it, sign in and pull a cloud model:
+
+```bash
+ollama signin
+ollama pull gemma4:31b-cloud
+```
+
+Then choose **Ollama Cloud** on the first setup screen. If Ollama is running with cloud
+turned off, the extension will say so rather than blaming the connection.
 
 ### Model choice and performance
 
@@ -146,6 +187,11 @@ hostnames where it stays off.
 Changing the model or the Ollama connection runs setup again from the runtime check, so the
 readiness test still guards what you switch to.
 
+Changing the **mode** re-checks your selected model against it. A model that does not fit
+the new mode — a cloud model while you are asking for on-this-computer, or the reverse —
+sends you back to model choice rather than leaving a selection that would be refused on
+your next explanation.
+
 **Nearby context** is off by default. When on, the extension may include the nearest
 visible reading blocks around your selection — never hidden text, form values, scripts,
 navigation, or distant page content.
@@ -199,9 +245,17 @@ automation.
 
 ## Roadmap
 
-Larger-model support for translation, more explanation levels, and additional local
-providers. Ollama Cloud is already supported as an opt-in mode; see
+Ollama Cloud is already supported as an opt-in mode; see
 [Privacy promise](#privacy-promise) for what that changes.
+
+Next, and deliberately not in this MVP: a hosted API provider. Measurement during
+development found that a hosted model translates markedly better than any model small
+enough to run locally — it kept every number and negation intact where the local ones did
+not. It is held back because it needs a second provider, a key you supply yourself, and a
+network permission requested only when you opt in, and none of that should ride along with
+the work that made the modes above trustworthy.
+
+Also planned: more explanation levels, and additional local providers.
 
 ## Troubleshooting
 

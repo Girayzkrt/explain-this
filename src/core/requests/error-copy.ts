@@ -121,6 +121,11 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
     explanation: "Explain This can only use its approved local Ollama address.",
     primaryAction: { intent: "open-setup", label: "Open setup" },
   },
+  MODE_NOT_SAVED: {
+    title: "Mode change wasn’t saved",
+    explanation: "Your previous mode is still in effect. Try again to switch.",
+    primaryAction: { intent: "retry", label: "Try again" },
+  },
 };
 
 export function getErrorPresentation(code: PublicErrorCode): ErrorPresentation {

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { OnboardingCommand, OnboardingEvent } from "./contracts";
+import { getErrorPresentation } from "../../core/requests/error-copy";
 import { DEFAULT_PREFERENCES } from "../settings/settings";
 import type {
   SettingsRepository,
@@ -170,8 +171,26 @@ describe("choosing how the model runs", () => {
     act(() => harness.result.current.chooseMode("ollama-cloud"));
 
     await waitFor(() => expect(harness.result.current.state.step).toBe("failed"));
-    // The probe still runs even though persistence failed, exactly as before this
-    // fix — only the silence is what changed.
+    const state = harness.result.current.state;
+    if (state.step !== "failed") throw new Error("expected failed step");
+    // A dedicated code, not the reader-card copy of INVALID_REQUEST, and one whose
+    // presentation names the problem and offers a retry control.
+    expect(state.error.code).toBe("MODE_NOT_SAVED");
+    const presentation = getErrorPresentation(state.error.code);
+    expect(presentation.title).toMatch(/mode/i);
+    expect(presentation.explanation).toMatch(/previous mode is still in effect/i);
+    expect(presentation.primaryAction.intent).toBe("retry");
+    // The runtime probe must not fire on a failed save — its later result would
+    // silently replace this failure notice before the reader can read it.
+    expect(harness.client.sent).not.toContainEqual({ type: "check-runtime" });
+
+    // The reader is not dead-ended: retrying re-attempts the same save, and once
+    // storage stops failing it proceeds exactly like a first-time success would.
+    failUpdates.current = false;
+    act(() => harness.result.current.retry());
+    await waitFor(() =>
+      expect(harness.result.current.state.step).toBe("checking-runtime"),
+    );
     expect(harness.client.sent).toContainEqual({ type: "check-runtime" });
   });
 
@@ -187,11 +206,26 @@ describe("choosing how the model runs", () => {
     act(() => harness.result.current.changeMode("ollama-cloud"));
 
     await waitFor(() => expect(harness.result.current.state.step).toBe("failed"));
-    // Revalidation still runs even though persistence failed, exactly as before this
-    // fix — only the silence is what changed.
-    expect(harness.client.sent).toContainEqual({
+    const state = harness.result.current.state;
+    if (state.step !== "failed") throw new Error("expected failed step");
+    expect(state.error.code).toBe("MODE_NOT_SAVED");
+    const presentation = getErrorPresentation(state.error.code);
+    expect(presentation.primaryAction.intent).toBe("retry");
+    // The revalidation list-models must not fire on a failed save — its later
+    // result could silently replace this failure notice before the reader reads it.
+    expect(harness.client.sent).not.toContainEqual({
       type: "list-models",
       mode: "ollama-cloud",
     });
+
+    // Retrying re-attempts the same save rather than dead-ending the reader.
+    failUpdates.current = false;
+    act(() => harness.result.current.retry());
+    await waitFor(() =>
+      expect(harness.client.sent).toContainEqual({
+        type: "list-models",
+        mode: "ollama-cloud",
+      }),
+    );
   });
 });

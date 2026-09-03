@@ -139,8 +139,11 @@ function reduceOnboarding(
       // reader stays on Settings unless revalidation later finds the current model
       // no longer fits. Still dispatched synchronously so `state.mode` (read by the
       // rail milestone label) never lags a render behind, the same race "mode" was
-      // built to avoid.
-      return state.step === "settings"
+      // built to avoid. Also accepted from "failed": that is `retry` re-running a
+      // changeMode save whose previous attempt landed here on a MODE_NOT_SAVED
+      // failure, and retrying must return the reader to Settings, not leave them
+      // stuck on the failure screen for a mode change that is back in flight.
+      return state.step === "settings" || state.step === "failed"
         ? { step: "settings", mode: action.mode }
         : state;
     case "back":
@@ -273,6 +276,13 @@ export function useOnboarding({
   const clientRef = useRef<OnboardingClientConnection | undefined>(undefined);
   const resumableCommandRef = useRef<OnboardingCommand | undefined>(undefined);
   const retryCommandRef = useRef<OnboardingCommand | undefined>(undefined);
+  // Set while a chooseMode/changeMode storage write is in flight or has just failed, so
+  // `retry` can re-attempt the same save instead of falling through to the generic
+  // command-replay below (a MODE_NOT_SAVED failure isn't a wire command, so there is
+  // nothing in `retryCommandRef` for it). Cleared the moment the write succeeds.
+  const pendingModeSaveRef = useRef<
+    { mode: SelectedProvider; origin: "choose" | "change" } | undefined
+  >(undefined);
   // Set only while a Settings mode change is waiting on its re-listed models, so the
   // shared "models-result"/"onboarding-failed" handling below can tell that revalidation
   // apart from the ordinary setup flow's list-models call, which always advances to
@@ -557,27 +567,32 @@ export function useOnboarding({
   const chooseMode = useCallback(
     (mode: SelectedProvider): void => {
       dispatch({ type: "mode", mode });
+      pendingModeSaveRef.current = { mode, origin: "choose" };
       // Persist before probing so the runtime check reads the mode just chosen,
       // not whatever was stored before. A persistence failure must not strand
-      // the reader on the checking-runtime screen, so the probe still runs — but it
-      // must not stay silent either: if `preferences.selectedProvider` never actually
-      // changes, every request still runs in the old mode while `state.mode` (and
-      // therefore the interface) claims the new one. Reported through the same
-      // "failed" step every other onboarding failure uses; the runtime check that
-      // still follows will replace it the moment a result comes back.
-      void updateSettings({ selectedProvider: mode })
-        .catch(() => {
+      // the reader on the checking-runtime screen, but it must not stay silent
+      // either: if `preferences.selectedProvider` never actually changes, every
+      // request still runs in the old mode while `state.mode` (and therefore the
+      // interface) claims the new one. Reported through the same "failed" step
+      // every other onboarding failure uses — and, on failure, the probe below is
+      // skipped rather than fired anyway, because its result would land moments
+      // later and silently replace the failure notice before the reader can read
+      // it. `retry` (below) re-attempts this exact save.
+      void updateSettings({ selectedProvider: mode }).then(
+        () => {
+          pendingModeSaveRef.current = undefined;
+          send({ type: "check-runtime" });
+        },
+        () => {
           dispatch({
             type: "failed",
             error: recoverableError(
-              "INVALID_REQUEST",
+              "MODE_NOT_SAVED",
               "The chosen mode could not be saved.",
             ),
           });
-        })
-        .then(() => {
-          send({ type: "check-runtime" });
-        });
+        },
+      );
     },
     [send, updateSettings],
   );
@@ -588,27 +603,46 @@ export function useOnboarding({
       // anything reading it, like the rail milestone label) never lags a render behind
       // the reader's click — the same fix `chooseMode` already applies for `preferences`.
       dispatch({ type: "settings-mode", mode });
+      pendingModeSaveRef.current = { mode, origin: "change" };
       revalidatingModeRef.current = mode;
       // See chooseMode's comment: a swallowed failure here would leave Settings
-      // claiming the new mode while every request keeps running in the old one.
-      void updateSettings({ selectedProvider: mode })
-        .catch(() => {
+      // claiming the new mode while every request keeps running in the old one, and
+      // firing the revalidation list-models anyway would risk the same failure-notice
+      // race chooseMode avoids above.
+      void updateSettings({ selectedProvider: mode }).then(
+        () => {
+          pendingModeSaveRef.current = undefined;
+          send({ type: "list-models", mode });
+        },
+        () => {
+          revalidatingModeRef.current = undefined;
           dispatch({
             type: "failed",
             error: recoverableError(
-              "INVALID_REQUEST",
+              "MODE_NOT_SAVED",
               "The chosen mode could not be saved.",
             ),
           });
-        })
-        .then(() => {
-          send({ type: "list-models", mode });
-        });
+        },
+      );
     },
     [send, updateSettings],
   );
 
   const retry = useCallback((): void => {
+    // A MODE_NOT_SAVED failure comes from a storage write, not a wire command, so it
+    // has nothing in `retryCommandRef` to replay — re-run the save that failed instead.
+    const pendingModeSave = pendingModeSaveRef.current;
+    if (
+      state.step === "failed" &&
+      state.error.code === "MODE_NOT_SAVED" &&
+      pendingModeSave
+    ) {
+      if (pendingModeSave.origin === "choose") chooseMode(pendingModeSave.mode);
+      else changeMode(pendingModeSave.mode);
+      return;
+    }
+
     const command = retryCommandRef.current;
     if (!command) return;
 
@@ -635,7 +669,7 @@ export function useOnboarding({
         break;
     }
     send(command);
-  }, [send]);
+  }, [send, state, chooseMode, changeMode]);
 
   return {
     state,

@@ -27,6 +27,7 @@ export const PUBLIC_ERROR_CODES = [
   "PROVIDER_ERROR",
   "INVALID_REQUEST",
   "INVALID_ENDPOINT",
+  "MODE_NOT_SAVED",
 ] as const;
 
 export type PublicErrorCode = (typeof PUBLIC_ERROR_CODES)[number];

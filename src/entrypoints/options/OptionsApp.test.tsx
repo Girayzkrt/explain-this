@@ -940,6 +940,30 @@ describe("options onboarding", () => {
     expect(screen.queryByText(/%/)).toBeNull();
   });
 
+  // The other branch of the same guard: a pull that omits `totalBytes` entirely, rather
+  // than reporting it as 0, must also read as "preparing" rather than a stuck bar.
+  it("shows preparing when a pull's progress event omits totalBytes entirely", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness);
+    await userEvent.click(
+      screen.getByRole("button", { name: `Download ${RECOMMENDED_MODEL}` }),
+    );
+    act(() => {
+      harness.client.emit({
+        type: "download-progress",
+        progress: {
+          type: "progress",
+          model: RECOMMENDED_MODEL,
+          completedBytes: 0,
+        },
+      });
+    });
+
+    expect(screen.getByText(/preparing/i)).toBeVisible();
+    expect(screen.queryByText(/NaN/)).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
+  });
+
   it("moves keyboard focus to the active step heading after a transition", async () => {
     const harness = createHarness();
 

@@ -562,6 +562,7 @@ function DownloadStep({
   selectedProvider: SelectedProvider;
 }) {
   const { progress } = state;
+  const isLocalMode = selectedProvider === "ollama-local";
   const completed = progress.type === "progress" ? progress.completedBytes : 0;
   const total = progress.type === "progress" ? progress.totalBytes : undefined;
   // A cloud pull moves no weights across the network, so Ollama can report a `total` of
@@ -570,12 +571,15 @@ function DownloadStep({
   const detail = indeterminate
     ? completed > 0
       ? `${formatBytes(completed)} downloaded`
-      : "Preparing local download"
+      : isLocalMode
+        ? "Preparing local download"
+        : "Preparing"
     : `${formatBytes(completed)} of ${formatBytes(total)}`;
-  const heading =
-    selectedProvider === "ollama-local"
-      ? "Downloading the local model"
-      : "Downloading the model";
+  const heading = isLocalMode ? "Downloading the local model" : "Downloading the model";
+  const storageNote = isLocalMode
+    ? "Ollama stores this model on your computer. You can cancel and retry."
+    : "Ollama runs this model in its cloud — nothing is stored on your computer. You can " +
+      "cancel and retry.";
 
   return (
     <StepFrame eyebrow="Step 2 of 4" heading={heading}>
@@ -594,7 +598,7 @@ function DownloadStep({
           />
         )}
       </div>
-      <p>Ollama stores this model on your computer. You can cancel and retry.</p>
+      <p>{storageNote}</p>
       <button className="button button-secondary" type="button" onClick={onCancel}>
         Cancel download
       </button>

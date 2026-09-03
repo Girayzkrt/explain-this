@@ -118,6 +118,20 @@ function surfaceOf(state: ReaderUiState): ReaderSurfaceState | undefined {
   return undefined;
 }
 
+/**
+ * A carried-over surface may still hold a previous request's provider. Used by
+ * retry()/followUp() so their optimistic "connecting" state can't assert a
+ * locality claim that may no longer match the request just sent — the field is
+ * dropped (not set to `undefined`, which `exactOptionalPropertyTypes` forbids
+ * for an optional property) until an authoritative session-snapshot arrives.
+ */
+function withoutProvider(surface: ReaderSurfaceState): ReaderSurfaceState {
+  if (!("provider" in surface)) return surface;
+  const rest: ReaderSurfaceState = { ...surface };
+  delete rest.provider;
+  return rest;
+}
+
 export class ReaderController {
   private state: ReaderUiState = { status: "idle" };
   private readonly listeners = new Set<() => void>();
@@ -273,7 +287,11 @@ export class ReaderController {
       active.cancelSent = false;
       active.lastSequence = -1;
     }
-    this.setState({ status: "connecting", ...surface });
+    // The carried-over surface may still hold the previous request's provider.
+    // Preferences can change between requests, so that value is stale until the
+    // coordinator's session-snapshot reports the provider actually in effect —
+    // render the neutral case, not a possibly-false locality claim, until then.
+    this.setState({ status: "connecting", ...withoutProvider(surface) });
     return true;
   }
 
@@ -288,7 +306,10 @@ export class ReaderController {
       requestId: surface.requestId,
       intent,
     });
-    this.setState({ status: "connecting", ...surface });
+    // Same reasoning as retry(): drop the previous request's provider so the
+    // optimistic state can't assert a locality claim the new request may not
+    // match, until the coordinator's session-snapshot says otherwise.
+    this.setState({ status: "connecting", ...withoutProvider(surface) });
     return true;
   }
 

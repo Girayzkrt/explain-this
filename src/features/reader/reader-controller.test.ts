@@ -394,6 +394,94 @@ describe("reader controller", () => {
     expect(harness.controller.getState()).not.toHaveProperty("provider");
   });
 
+  it("does not carry a stale local provider claim into retry's optimistic state", async () => {
+    const harness = createHarness({ capture: snapshot() });
+    await harness.controller.selectionCompleted();
+    harness.controller.startAction("explain");
+    const port = harness.connections[0];
+    port?.emit({
+      type: "session-snapshot",
+      session: {
+        tabId: 1,
+        requestId: REQUEST_ID,
+        selectionPreview: "A difficult selected sentence.",
+        action: "explain",
+        contextIncluded: false,
+        status: "pending",
+        answer: "",
+        lastSequence: -1,
+        origin: "https://reader.example",
+        provider: "ollama-local",
+      },
+    });
+    port?.emit({
+      type: "stream-event",
+      event: { type: "started", requestId: REQUEST_ID },
+    });
+    port?.emit({
+      type: "stream-event",
+      event: { type: "delta", requestId: REQUEST_ID, sequence: 0, text: "Partial" },
+    });
+    harness.flushFrame();
+    port?.suspend();
+    expect(harness.controller.getState()).toMatchObject({
+      status: "failed",
+      provider: "ollama-local",
+    });
+
+    harness.controller.retry();
+
+    // Settings may have changed since the failed request; the coordinator has
+    // not yet reported which provider the retry actually uses, so the
+    // optimistic state must not keep asserting the previous, possibly stale,
+    // local claim.
+    expect(harness.controller.getState()).toMatchObject({ status: "connecting" });
+    expect(harness.controller.getState()).not.toHaveProperty("provider");
+  });
+
+  it("does not carry a stale local provider claim into a follow-up's optimistic state", async () => {
+    const harness = createHarness({ capture: snapshot() });
+    await harness.controller.selectionCompleted();
+    harness.controller.startAction("explain");
+    const port = harness.connections[0];
+    port?.emit({
+      type: "session-snapshot",
+      session: {
+        tabId: 1,
+        requestId: REQUEST_ID,
+        selectionPreview: "A difficult selected sentence.",
+        action: "explain",
+        contextIncluded: false,
+        status: "pending",
+        answer: "",
+        lastSequence: -1,
+        origin: "https://reader.example",
+        provider: "ollama-local",
+      },
+    });
+    port?.emit({
+      type: "stream-event",
+      event: { type: "started", requestId: REQUEST_ID },
+    });
+    port?.emit({
+      type: "stream-event",
+      event: { type: "delta", requestId: REQUEST_ID, sequence: 0, text: "Answer" },
+    });
+    port?.emit({
+      type: "stream-event",
+      event: { type: "completed", requestId: REQUEST_ID },
+    });
+    expect(harness.controller.getState()).toMatchObject({
+      status: "complete",
+      provider: "ollama-local",
+    });
+
+    harness.controller.followUp("why");
+
+    expect(harness.controller.getState()).toMatchObject({ status: "connecting" });
+    expect(harness.controller.getState()).not.toHaveProperty("provider");
+  });
+
   it("cancels a scheduled animation frame when a terminal event flushes deltas", async () => {
     const harness = createHarness({ capture: snapshot() });
     await harness.controller.selectionCompleted();

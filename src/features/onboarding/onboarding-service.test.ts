@@ -302,6 +302,31 @@ describe("onboarding service", () => {
     ]);
   });
 
+  it("treats an unknown-origin model as signed in, not as needing sign-in guidance", async () => {
+    const harness = createHarness();
+    harness.provider.models = [
+      { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+      { id: "gemma4:31b-cloud", displayName: "gemma4:31b-cloud", origin: "unknown" },
+    ];
+
+    harness.port.send({ type: "list-models", mode: "ollama-cloud" });
+    await settle();
+
+    expect(harness.port.posted).toEqual([
+      {
+        type: "models-result",
+        models: [
+          { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+          {
+            id: "gemma4:31b-cloud",
+            displayName: "gemma4:31b-cloud",
+            origin: "unknown",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("lists every model with its origin intact when the reader is signed in", async () => {
     const harness = createHarness();
     harness.provider.models = [
@@ -542,6 +567,10 @@ describe("onboarding service", () => {
     expect(call?.request.messages[1]?.content).not.toContain(
       'nearby_context included="true"',
     );
+    // The recommended model was just downloaded and is therefore cold; readiness must
+    // use the same mode-derived budget the reader path uses, not the provider's own
+    // shorter default, or a correctly configured local reader can time out here.
+    expect(call?.request.firstTokenTimeoutMs).toBe(60_000);
     expect(harness.port.posted.at(-1)).toEqual({
       type: "readiness-result",
       result: {
@@ -551,6 +580,23 @@ describe("onboarding service", () => {
         warnings: [],
       },
     });
+  });
+
+  it("sizes readiness's first-token budget to cloud mode when that is the active mode", async () => {
+    const harness = createHarness();
+    harness.provider.models = [
+      { id: "gemma4:31b-cloud", displayName: "gemma4:31b-cloud", origin: "cloud" },
+    ];
+
+    harness.port.send({
+      type: "run-readiness",
+      model: "gemma4:31b-cloud",
+      preferences: { ...DEFAULT_PREFERENCES, selectedProvider: "ollama-cloud" },
+    });
+    await settle();
+
+    const call = harness.provider.chatCalls[0];
+    expect(call?.request.firstTokenTimeoutMs).toBe(20_000);
   });
 
   it("rejects readiness for a model outside the exact recommended-or-installed boundary", async () => {

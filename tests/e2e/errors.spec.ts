@@ -71,7 +71,7 @@ test("reports an unreachable local runtime in the reader card", async ({ e2e }) 
   await e2e.extension.invokePackagedReader(page);
 
   const notice = page.getByRole("alert");
-  await expect(notice).toContainText("Local model unavailable");
+  await expect(notice).toContainText("Model unavailable");
   await expect(notice).toContainText(
     "Explain This could not reach Ollama on this computer.",
   );

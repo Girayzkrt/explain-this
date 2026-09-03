@@ -142,6 +142,20 @@ describe("OllamaProvider", () => {
     });
   });
 
+  it("maps an unauthenticated response to OLLAMA_SIGNIN_REQUIRED", async () => {
+    const provider = createOllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetchImpl: async () => new Response("unauthorized", { status: 401 }),
+    });
+
+    await expect(
+      provider.listModels(new AbortController().signal),
+    ).rejects.toMatchObject({
+      code: "OLLAMA_SIGNIN_REQUIRED",
+      recoverable: true,
+    } satisfies Partial<PublicError>);
+  });
+
   it("maps an origin rejection to a safe OLLAMA_ORIGIN_BLOCKED error", async () => {
     const provider = createOllamaProvider({
       baseUrl: "http://localhost:11434",

@@ -21,14 +21,14 @@ computer.
 
 ## Data inventory
 
-| Data item          | Source                                              | Destination                                                                                | Stored where, for how long                                                                               | Your control                                             |
-| ------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Selected text      | Your selection                                      | Local Ollama on loopback, which forwards it to Ollama's cloud servers in Ollama Cloud mode | `storage.session` while the request is live; deleted when the tab navigates, closes, or the browser ends | Select nothing and nothing is sent                       |
-| Nearby context     | Nearest visible reading blocks around the selection | Same as selected text                                                                      | Same as above                                                                                            | **Off by default**; opt in per preference                |
-| Model output       | Local Ollama                                        | Reader card and side panel                                                                 | `storage.session` for the current request only                                                           | Close the card                                           |
-| Preferences        | You, during onboarding                              | Never leaves the device                                                                    | `storage.local` until you change or remove them                                                          | Editable in Settings                                     |
-| Blocked hostnames  | You                                                 | Never leaves the device                                                                    | `storage.local` as hostnames only                                                                        | Editable in Settings                                     |
-| Diagnostics report | Local setup facts                                   | Your clipboard, only when you click Copy                                                   | Not stored                                                                                               | Built from an allowlist; contains no page text or output |
+| Data item          | Source                                                             | Destination                                                                                | Stored where, for how long                                                                               | Your control                                             |
+| ------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Selected text      | Your selection                                                     | Local Ollama on loopback, which forwards it to Ollama's cloud servers in Ollama Cloud mode | `storage.session` while the request is live; deleted when the tab navigates, closes, or the browser ends | Select nothing and nothing is sent                       |
+| Nearby context     | Nearest visible reading blocks around the selection                | Same as selected text                                                                      | Same as above                                                                                            | **Off by default**; opt in per preference                |
+| Model output       | Local Ollama, relaying Ollama's cloud servers in Ollama Cloud mode | Reader card and side panel                                                                 | `storage.session` for the current request only                                                           | Close the card                                           |
+| Preferences        | You, during onboarding                                             | Never leaves the device                                                                    | `storage.local` until you change or remove them                                                          | Editable in Settings                                     |
+| Blocked hostnames  | You                                                                | Never leaves the device                                                                    | `storage.local` as hostnames only                                                                        | Editable in Settings                                     |
+| Diagnostics report | Local setup facts                                                  | Your clipboard, only when you click Copy                                                   | Not stored                                                                                               | Built from an allowlist; contains no page text or output |
 
 `storage.session` is cleared by the browser when the browser closes. The extension also
 deletes a tab's entries when that tab navigates away or is closed.
@@ -82,7 +82,11 @@ What is actually enforced, and tested:
 
 - Model output is rendered as **sanitised Markdown**. It cannot execute scripts, create
   links, or inject DOM nodes.
-- The extension has **no network egress beyond loopback**, so nothing can be exfiltrated.
+- The extension itself has **no network egress beyond loopback**: it only ever talks to
+  the local Ollama address. In the default **On this computer** mode that means nothing
+  leaves the machine. In **Ollama Cloud** mode, that same local Ollama forwards your
+  selection on to Ollama's servers as normal for that mode — a successful injection
+  cannot route it anywhere beyond where the mode already sends it.
 - Page text is **never persisted**.
 - The reader surface lives in its own **Shadow DOM**, so hostile page CSS cannot restyle or
   reposition it.

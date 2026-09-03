@@ -23,8 +23,8 @@ const LOCAL: ProviderCopy = {
 const CLOUD: ProviderCopy = {
   kicker: "Cloud reader",
   ariaLabel: "Cloud explanation",
-  connecting: "Connecting to Ollama's cloud…",
-  explaining: "Explaining via Ollama's cloud…",
+  connecting: "Connecting to Ollama’s cloud…",
+  explaining: "Explaining via Ollama’s cloud…",
 };
 
 const UNKNOWN: ProviderCopy = {

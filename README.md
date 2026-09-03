@@ -40,7 +40,7 @@ or in Settings.
 The exact data inventory — every item, where it goes, how long it lives, and what you
 control — is in [`docs/privacy.md`](docs/privacy.md).
 
-![Local-only data flow](docs/assets/privacy-flow.svg)
+![Explain This data flow, by mode](docs/assets/privacy-flow.svg)
 
 ## Requirements
 
@@ -67,7 +67,9 @@ start, or update it.
 3. Install the extension, then open its options page and follow setup. It checks that
    Ollama is reachable, confirms the model, and asks for your reading preferences.
 
-Setup never sends page text. The readiness check only lists your local models.
+Setup never sends page text. The readiness check does generate one real, harmless sample
+explanation to confirm the model works — in Ollama Cloud mode, that sample reaches
+Ollama's servers, exactly as any explanation would in that mode.
 
 ### Model choice and performance
 
@@ -135,10 +137,11 @@ menu keep working.
 
 ![The settings screen](docs/assets/settings.png)
 
-Everything you choose during setup stays editable: explanation level (everyday, standard,
-technical), the explanation language, whether to keep English technical terms, whether to
-include **nearby context**, whether the selection toolbar appears automatically, and a list
-of hostnames where it stays off.
+Everything you choose during setup stays editable: the mode (**On this computer** or
+**Ollama Cloud**), the model, explanation level (everyday, standard, technical), the
+explanation language, whether to keep English technical terms, whether to include
+**nearby context**, whether the selection toolbar appears automatically, and a list of
+hostnames where it stays off.
 
 Changing the model or the Ollama connection runs setup again from the runtime check, so the
 readiness test still guards what you switch to.
@@ -183,8 +186,8 @@ automation.
 
 ## Limitations
 
-- **Explanations can be wrong.** A small local model generates them and nothing verifies
-  them.
+- **Explanations can be wrong.** They come from the model you chose — local or cloud —
+  and nothing verifies them.
 - **Prompt injection is not prevented.** A hostile page can steer the model's wording. What
   is enforced: output cannot execute. In the default **On this computer** mode, page text
   never leaves your device; in **Ollama Cloud** mode, your selection is sent to Ollama's

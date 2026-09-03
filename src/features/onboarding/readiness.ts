@@ -2,7 +2,12 @@ import { buildChatRequest } from "../../core/prompts/prompt-builder";
 import { PublicError } from "../../core/requests/public-error";
 import type { ModelConcurrencyGate } from "../../core/requests/model-concurrency-gate";
 import type { ReadingPreferences } from "../settings/settings";
-import type { LlmProvider, PublicErrorShape } from "../../providers/provider";
+import type {
+  ChatRequest,
+  LlmProvider,
+  PublicErrorShape,
+} from "../../providers/provider";
+import { firstTokenBudgetMs } from "../../shared/constants";
 import type { ReadinessResult } from "./contracts";
 
 const READINESS_SELECTION = "This is a local readiness check.";
@@ -27,12 +32,20 @@ export async function runReadiness(
 ): Promise<ReadinessResult> {
   return dependencies.modelGate.runExclusive(signal, async () => {
     const requestId = crypto.randomUUID();
-    const request = buildChatRequest({
-      requestId,
-      action: "explain",
-      selection: READINESS_SELECTION,
-      preferences: { ...preferences, selectedModel: model },
-    });
+    // Readiness runs against a model that was just selected or downloaded and is
+    // therefore cold, so it must be sized to the same mode-derived budget the reader
+    // path uses (see `firstTokenBudgetMs`) rather than the provider's own default —
+    // otherwise a correctly configured local reader times out on exactly the
+    // hardware profile that budget was measured against.
+    const request: ChatRequest = {
+      ...buildChatRequest({
+        requestId,
+        action: "explain",
+        selection: READINESS_SELECTION,
+        preferences: { ...preferences, selectedModel: model },
+      }),
+      firstTokenTimeoutMs: firstTokenBudgetMs(preferences.selectedProvider),
+    };
     const startedAt = dependencies.now();
     let firstTokenMs: number | undefined;
     let tokensPerSecond: number | undefined;

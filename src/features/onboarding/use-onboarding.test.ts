@@ -45,14 +45,23 @@ function storedSettings(): StoredSettings {
   };
 }
 
-function renderOnboarding() {
+function renderOnboarding(
+  options: {
+    failUpdates?: { current: boolean };
+    onboardingVersion?: StoredSettings["onboardingVersion"];
+  } = {},
+) {
   const clients: FakeClient[] = [];
   const settings = storedSettings();
+  if (options.onboardingVersion !== undefined) {
+    settings.onboardingVersion = options.onboardingVersion;
+  }
   const settingsRepository: SettingsRepository = {
     async get() {
       return structuredClone(settings);
     },
     async update(patch) {
+      if (options.failUpdates?.current) throw new Error("storage.local.set failed");
       settings.preferences = { ...settings.preferences, ...patch };
       return structuredClone(settings);
     },
@@ -150,5 +159,39 @@ describe("choosing how the model runs", () => {
 
     expect(harness.result.current.state.step).toBe("checking-runtime");
     expect(harness.client.sent.at(-1)).toEqual({ type: "check-runtime" });
+  });
+
+  test("surfaces a mode choice that could not be persisted instead of swallowing it", async () => {
+    const failUpdates = { current: true };
+    const harness = renderOnboarding({ failUpdates });
+    await waitFor(() => expect(harness.result.current.state.step).toBe("welcome"));
+
+    act(() => harness.result.current.begin());
+    act(() => harness.result.current.chooseMode("ollama-cloud"));
+
+    await waitFor(() => expect(harness.result.current.state.step).toBe("failed"));
+    // The probe still runs even though persistence failed, exactly as before this
+    // fix — only the silence is what changed.
+    expect(harness.client.sent).toContainEqual({ type: "check-runtime" });
+  });
+
+  test("surfaces a Settings mode change that could not be persisted instead of swallowing it", async () => {
+    const failUpdates = { current: false };
+    const harness = renderOnboarding({
+      failUpdates,
+      onboardingVersion: 1,
+    });
+    await waitFor(() => expect(harness.result.current.state.step).toBe("settings"));
+
+    failUpdates.current = true;
+    act(() => harness.result.current.changeMode("ollama-cloud"));
+
+    await waitFor(() => expect(harness.result.current.state.step).toBe("failed"));
+    // Revalidation still runs even though persistence failed, exactly as before this
+    // fix — only the silence is what changed.
+    expect(harness.client.sent).toContainEqual({
+      type: "list-models",
+      mode: "ollama-cloud",
+    });
   });
 });

@@ -559,9 +559,22 @@ export function useOnboarding({
       dispatch({ type: "mode", mode });
       // Persist before probing so the runtime check reads the mode just chosen,
       // not whatever was stored before. A persistence failure must not strand
-      // the reader on the checking-runtime screen, so the probe still runs.
+      // the reader on the checking-runtime screen, so the probe still runs — but it
+      // must not stay silent either: if `preferences.selectedProvider` never actually
+      // changes, every request still runs in the old mode while `state.mode` (and
+      // therefore the interface) claims the new one. Reported through the same
+      // "failed" step every other onboarding failure uses; the runtime check that
+      // still follows will replace it the moment a result comes back.
       void updateSettings({ selectedProvider: mode })
-        .catch(() => undefined)
+        .catch(() => {
+          dispatch({
+            type: "failed",
+            error: recoverableError(
+              "INVALID_REQUEST",
+              "The chosen mode could not be saved.",
+            ),
+          });
+        })
         .then(() => {
           send({ type: "check-runtime" });
         });
@@ -576,8 +589,18 @@ export function useOnboarding({
       // the reader's click — the same fix `chooseMode` already applies for `preferences`.
       dispatch({ type: "settings-mode", mode });
       revalidatingModeRef.current = mode;
+      // See chooseMode's comment: a swallowed failure here would leave Settings
+      // claiming the new mode while every request keeps running in the old one.
       void updateSettings({ selectedProvider: mode })
-        .catch(() => undefined)
+        .catch(() => {
+          dispatch({
+            type: "failed",
+            error: recoverableError(
+              "INVALID_REQUEST",
+              "The chosen mode could not be saved.",
+            ),
+          });
+        })
         .then(() => {
           send({ type: "list-models", mode });
         });

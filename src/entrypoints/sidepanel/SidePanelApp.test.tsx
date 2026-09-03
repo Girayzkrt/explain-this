@@ -129,7 +129,7 @@ describe("focused explanation side panel", () => {
 
     expect(screen.getByText("Cloud reader")).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Explaining via Ollama's cloud…",
+      "Explaining via Ollama’s cloud…",
     );
     expect(screen.getByRole("status")).not.toHaveTextContent(/locally/i);
     expect(screen.queryByText("Local reader")).not.toBeInTheDocument();

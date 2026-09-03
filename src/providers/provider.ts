@@ -41,7 +41,15 @@ export interface ProviderHealth {
   secondaryAction?: "show-origin-guidance";
 }
 
-export type ModelOrigin = "local" | "cloud" | "unknown";
+/**
+ * Single source of truth for the model-origin values. Every schema that needs to
+ * accept or enumerate them derives from this constant rather than hand-maintaining its
+ * own literal list — the same defect class already caused a runtime bug once for a
+ * hand-copied `PublicErrorCode` list (see `public-error.ts`).
+ */
+export const MODEL_ORIGINS = ["local", "cloud", "unknown"] as const;
+
+export type ModelOrigin = (typeof MODEL_ORIGINS)[number];
 
 export interface ModelInfo {
   id: string;

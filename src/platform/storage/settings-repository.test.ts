@@ -50,11 +50,18 @@ describe("settings repository", () => {
   });
 
   it("repairs an invalid stored settings object with safe defaults", async () => {
+    // An unrecognised selectedProvider no longer makes the whole object invalid (see
+    // the "selectedProvider migration" tests below) — it is coerced field-by-field, so
+    // this test uses a different, genuinely unparseable field to exercise the
+    // full-object repair path.
     const storage = new MemoryStorageArea();
     await storage.set({
       settings: {
         onboardingVersion: 1,
-        preferences: { ...createDefaultPreferences(), selectedProvider: "remote" },
+        preferences: {
+          ...createDefaultPreferences(),
+          explanationLevel: "not-a-real-level",
+        },
       },
     });
     const repository = createSettingsRepository(storage, () => "de-DE");
@@ -139,7 +146,7 @@ describe("selectedProvider migration", () => {
     expect(stored.onboardingVersion).toBe(1);
   });
 
-  it("falls back to defaults for a provider value it does not recognise", async () => {
+  it("falls back to defaults for a provider value it does not recognise, keeping every other preference", async () => {
     const storage = new MemoryStorageArea();
     await storage.set({
       settings: {
@@ -161,5 +168,13 @@ describe("selectedProvider migration", () => {
     const stored = await repository.get();
 
     expect(stored.preferences.selectedProvider).toBe("ollama-local");
+    expect(stored.preferences.preferredLanguage).toBe("Turkish");
+    expect(stored.preferences.explanationLevel).toBe("technical");
+    expect(stored.preferences.preserveEnglishTerms).toBe(false);
+    expect(stored.preferences.includeNearbyContext).toBe(true);
+    expect(stored.preferences.selectedModel).toBe("gemma3:4b");
+    expect(stored.preferences.automaticToolbar).toBe(true);
+    expect(stored.preferences.blockedSites).toEqual(["example.com"]);
+    expect(stored.onboardingVersion).toBe(1);
   });
 });

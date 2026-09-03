@@ -17,7 +17,7 @@ export interface ErrorPresentation {
 
 export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
   OLLAMA_UNREACHABLE: {
-    title: "Local model unavailable",
+    title: "Model unavailable",
     explanation: "Explain This could not reach Ollama on this computer.",
     primaryAction: { intent: "open-setup", label: "Open setup" },
   },
@@ -45,7 +45,7 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
   CLOUD_MODEL_IN_LOCAL_MODE: {
     title: "Cloud model selected in local mode",
     explanation:
-      "The selected model runs in Ollama's cloud, but this computer-only mode was chosen. Pick a local model or switch to Ollama Cloud in Settings.",
+      "The selected model runs in Ollama’s cloud, but this computer-only mode was chosen. Pick a local model or switch to Ollama Cloud in Settings.",
     primaryAction: { intent: "choose-model", label: "Choose model" },
   },
   MODEL_DOWNLOAD_FAILED: {
@@ -117,7 +117,7 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
     primaryAction: { intent: "dismiss", label: "Dismiss" },
   },
   INVALID_ENDPOINT: {
-    title: "Local model address needs setup",
+    title: "Model address needs setup",
     explanation: "Explain This can only use its approved local Ollama address.",
     primaryAction: { intent: "open-setup", label: "Open setup" },
   },

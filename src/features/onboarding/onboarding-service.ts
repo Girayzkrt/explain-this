@@ -243,7 +243,12 @@ export class OnboardingService {
     signal: AbortSignal,
   ): Promise<ModelInfo[]> {
     const models = await this.dependencies.provider.listModels(signal);
-    if (mode === "ollama-cloud" && !models.some((model) => model.origin === "cloud")) {
+    // Uncertainty resolves toward cloud (see the spec's "Data model" section): an
+    // "unknown" origin model is treated exactly like a "cloud" one here, not like
+    // "local". Checking `!== "local"` rather than `=== "cloud"` is what keeps a
+    // signed-in reader whose cloud model reports an unrecognised origin out of the
+    // sign-in guidance loop they already escaped.
+    if (mode === "ollama-cloud" && !models.some((model) => model.origin !== "local")) {
       throw new PublicError(
         "OLLAMA_SIGNIN_REQUIRED",
         "No Ollama Cloud models are available. Run `ollama signin`, then pull a cloud model.",

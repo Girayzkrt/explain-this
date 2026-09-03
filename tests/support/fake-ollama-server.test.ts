@@ -2,7 +2,7 @@
 
 import { Agent, request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { RECOMMENDED_MODEL } from "../../src/shared/constants";
+import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../src/shared/constants";
 import { startFakeOllamaServer, type FakeOllamaServer } from "./fake-ollama-server";
 
 const openServers = new Set<FakeOllamaServer>();
@@ -118,8 +118,8 @@ describe("fake Ollama contract server", () => {
           details: { family: "qwen2.5", parameter_size: "3B" },
         }),
         expect.objectContaining({
-          name: "gemma4:26b-cloud",
-          model: "gemma4:26b-cloud",
+          name: RECOMMENDED_CLOUD_MODEL,
+          model: RECOMMENDED_CLOUD_MODEL,
           size: 0,
         }),
       ],
@@ -139,7 +139,7 @@ describe("fake Ollama contract server", () => {
     ).resolves.toEqual({
       models: [
         expect.objectContaining({ name: RECOMMENDED_MODEL }),
-        expect.objectContaining({ name: "gemma4:26b-cloud" }),
+        expect.objectContaining({ name: RECOMMENDED_CLOUD_MODEL }),
       ],
     });
   });

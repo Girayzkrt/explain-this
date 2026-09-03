@@ -1,7 +1,9 @@
 import { z } from "zod";
 import {
   createDefaultPreferences,
+  DEFAULT_PREFERENCES,
   ReadingPreferencesSchema,
+  SelectedProviderSchema,
   type ReadingPreferences,
 } from "../../features/settings/settings";
 import type { StorageAreaLike } from "./storage-area";
@@ -18,18 +20,37 @@ const PersistedSettingsSchema = z
   })
   .strict();
 
-/** The provider was a single literal before cloud mode existed. */
+/**
+ * The provider was a single literal before cloud mode existed, and the enum has grown
+ * since. Only `selectedProvider` is rewritten here: an unrecognised value (an older
+ * literal, or one from a future build this one doesn't know about yet) falls back to
+ * the default for that field alone. Every other preference — language, level, blocked
+ * sites, the model, the onboarding version — passes through untouched, so a value this
+ * build doesn't recognise costs the reader one field, not a silent reset of everything
+ * they configured.
+ */
 function migrateStoredSettings(stored: unknown): unknown {
   if (typeof stored !== "object" || stored === null) return stored;
   const settings = stored as Record<string, unknown>;
   const preferences = settings.preferences;
   if (typeof preferences !== "object" || preferences === null) return stored;
   const values = preferences as Record<string, unknown>;
-  if (values.selectedProvider !== "ollama") return stored;
-  return {
-    ...settings,
-    preferences: { ...values, selectedProvider: "ollama-local" },
-  };
+  if (values.selectedProvider === "ollama") {
+    return {
+      ...settings,
+      preferences: { ...values, selectedProvider: "ollama-local" },
+    };
+  }
+  if (!SelectedProviderSchema.safeParse(values.selectedProvider).success) {
+    return {
+      ...settings,
+      preferences: {
+        ...values,
+        selectedProvider: DEFAULT_PREFERENCES.selectedProvider,
+      },
+    };
+  }
+  return stored;
 }
 
 export interface StoredSettings {

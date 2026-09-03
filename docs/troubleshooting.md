@@ -14,30 +14,32 @@ installs, or downloads anything on its own.
 
 ## Setup and connection
 
-| Code                    | What you see                        | What to check                                                                                                                                               |
-| ----------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OLLAMA_UNREACHABLE`    | Local model unavailable             | Ollama is not running, or is not on `127.0.0.1:11434`. Start Ollama, then reopen the reader.                                                                |
-| `OLLAMA_ORIGIN_BLOCKED` | Ollama needs this extension allowed | Ollama refused the extension's origin. Allow the **exact** origin the options page shows. Never use a wildcard, and never bind Ollama to a network address. |
-| `INVALID_ENDPOINT`      | Local model address needs setup     | The extension only talks to its approved loopback address. If you see this, the build is misconfigured — reinstall the released package.                    |
-| `CONNECTION_TIMEOUT`    | Model took too long to connect      | Ollama accepted the connection but never answered. Check that it is healthy and not stuck on another job.                                                   |
+| Code                     | What you see                        | What to check                                                                                                                                                      |
+| ------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OLLAMA_UNREACHABLE`     | Model unavailable                   | Ollama is not running, or is not on `127.0.0.1:11434`. Start Ollama, then reopen the reader. Both modes need it running — Ollama Cloud is reached through it, too. |
+| `OLLAMA_ORIGIN_BLOCKED`  | Ollama needs this extension allowed | Ollama refused the extension's origin. Allow the **exact** origin the options page shows. Never use a wildcard, and never bind Ollama to a network address.        |
+| `OLLAMA_SIGNIN_REQUIRED` | Sign in to Ollama Cloud             | Ollama Cloud mode found no signed-in cloud model, or a session expired. Run `ollama signin`, pull a cloud model, then check again.                                 |
+| `INVALID_ENDPOINT`       | Model address needs setup           | The extension only talks to its approved loopback address. If you see this, the build is misconfigured — reinstall the released package.                           |
+| `CONNECTION_TIMEOUT`     | Model took too long to connect      | Ollama accepted the connection but never answered. Check that it is healthy and not stuck on another job.                                                          |
 
 ## Model
 
-| Code                    | What you see                  | What to check                                                                                                                     |
-| ----------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `NO_MODEL`              | Choose a model                | No model is selected. Open Settings and pick one.                                                                                 |
-| `MODEL_NOT_FOUND`       | Selected model is unavailable | The selected model is no longer installed. Reinstall it with `ollama pull gemma3:4b`, or choose another in Settings.              |
-| `MODEL_DOWNLOAD_FAILED` | Model download stopped        | The download did not finish. Check disk space and connectivity, then retry. You can also pull it yourself and return to Settings. |
+| Code                        | What you see                       | What to check                                                                                                                              |
+| --------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NO_MODEL`                  | Choose a model                     | No model is selected. Open Settings and pick one.                                                                                          |
+| `MODEL_NOT_FOUND`           | Selected model is unavailable      | The selected model is no longer installed. Reinstall it with `ollama pull gemma3:4b`, or choose another in Settings.                       |
+| `CLOUD_MODEL_IN_LOCAL_MODE` | Cloud model selected in local mode | The selected model runs in Ollama's cloud, but On this computer mode is active. Pick a local model, or switch to Ollama Cloud in Settings. |
+| `MODEL_DOWNLOAD_FAILED`     | Model download stopped             | The download did not finish. Check disk space and connectivity, then retry. You can also pull it yourself and return to Settings.          |
 
 ## Generation
 
-| Code                  | What you see                 | What to check                                                                                                                                             |
-| --------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FIRST_TOKEN_TIMEOUT` | Model took too long to start | The model did not begin answering. Common on machines without a GPU, or on the first request after the model loads. Try again, or choose a smaller model. |
-| `STREAM_IDLE_TIMEOUT` | Explanation timed out        | The model stopped mid-answer. Any partial text stays visible and marked incomplete. Retry.                                                                |
-| `MALFORMED_STREAM`    | Response could not be read   | The model sent output the extension could not parse. Retry; if it repeats, try a different model.                                                         |
-| `PROVIDER_ERROR`      | Model could not finish       | Ollama reported a failure. Check the Ollama logs.                                                                                                         |
-| `REQUEST_CANCELLED`   | Explanation stopped          | You pressed Stop, or a request in another tab replaced this one. Only one explanation runs at a time.                                                     |
+| Code                  | What you see                 | What to check                                                                                                                                                                                                                                                                              |
+| --------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `FIRST_TOKEN_TIMEOUT` | Model took too long to start | The model did not begin answering. In **On this computer** mode this is common on machines without a GPU, or on the first request after the model loads. In **Ollama Cloud** mode it usually means network latency or a queued request. Try again, or choose a smaller or different model. |
+| `STREAM_IDLE_TIMEOUT` | Explanation timed out        | The model stopped mid-answer. Any partial text stays visible and marked incomplete. Retry.                                                                                                                                                                                                 |
+| `MALFORMED_STREAM`    | Response could not be read   | The model sent output the extension could not parse. Retry; if it repeats, try a different model.                                                                                                                                                                                          |
+| `PROVIDER_ERROR`      | Model could not finish       | Ollama reported a failure. Check the Ollama logs.                                                                                                                                                                                                                                          |
+| `REQUEST_CANCELLED`   | Explanation stopped          | You pressed Stop, or a request in another tab replaced this one. Only one explanation runs at a time.                                                                                                                                                                                      |
 
 ## Selection and page
 

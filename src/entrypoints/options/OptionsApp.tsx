@@ -32,7 +32,11 @@ import type { SettingsRepository } from "../../platform/storage/settings-reposit
 import type { SelectedProvider } from "../../features/settings/settings";
 import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../shared/constants";
 
-const SETUP_STEPS = ["Welcome", "Local model", "Preferences", "Ready"] as const;
+// The step-2 label is always overridden by `modelMilestoneLabel` below (mode-neutral
+// until a mode is chosen, then "Local model" or "Cloud model"), so this literal never
+// actually renders — but it stays mode-neutral too, rather than baking in the one mode
+// the override exists specifically to avoid claiming unconditionally.
+const SETUP_STEPS = ["Welcome", "Model", "Preferences", "Ready"] as const;
 
 const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
 
@@ -474,7 +478,7 @@ function ModelStep({
           <h3>{headlineModelId}</h3>
           <p>
             {isCloudMode
-              ? "Runs on Ollama's servers. Nothing to download on this computer."
+              ? "Runs on Ollama’s servers. Nothing to download on this computer."
               : "Approximately 3.3 GB. The only model measured here that stays usable " +
                 "across the European languages this extension targets."}
           </p>
@@ -519,7 +523,7 @@ function ModelStep({
               const blocked = consistency !== "ok";
               const reason =
                 consistency === "cloud-model-in-local-mode"
-                  ? " — runs in Ollama's cloud"
+                  ? " — runs in Ollama’s cloud"
                   : consistency === "local-model-in-cloud-mode"
                     ? " — runs on this computer"
                     : "";

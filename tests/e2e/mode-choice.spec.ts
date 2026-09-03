@@ -1,3 +1,4 @@
+import { RECOMMENDED_CLOUD_MODEL } from "../../src/shared/constants";
 import { expect, test } from "./e2e-fixture";
 
 test.beforeEach(async ({ e2e }) => {
@@ -17,7 +18,9 @@ test("reaches cloud model choice through the mode screen", async ({ e2e }) => {
   await expect(
     options.getByRole("heading", { name: "Choose a cloud model" }),
   ).toBeVisible();
-  await expect(options.getByRole("option", { name: /gemma4:26b-cloud/ })).toBeEnabled();
+  await expect(
+    options.getByRole("option", { name: new RegExp(RECOMMENDED_CLOUD_MODEL) }),
+  ).toBeEnabled();
 });
 
 test("keeps a cloud model unselectable in local mode", async ({ e2e }) => {
@@ -31,7 +34,7 @@ test("keeps a cloud model unselectable in local mode", async ({ e2e }) => {
   ).toBeVisible();
 
   await expect(
-    options.getByRole("option", { name: /gemma4:26b-cloud/ }),
+    options.getByRole("option", { name: new RegExp(RECOMMENDED_CLOUD_MODEL) }),
   ).toBeDisabled();
 });
 

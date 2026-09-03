@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
-import { RECOMMENDED_MODEL } from "../../src/shared/constants";
+import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../src/shared/constants";
 
 export type TagsScenario = "no-model" | "model" | "origin-reject" | "http-failure";
 export type ShowScenario = "model" | "missing-model" | "origin-reject" | "http-failure";
@@ -222,10 +222,13 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
                     },
                     // A cloud-origin model, distinguishable by two independent signals (the
                     // "-cloud" name suffix and a zero/absent size) so origin detection does
-                    // not depend on either heuristic alone. See model-origin.ts.
+                    // not depend on either heuristic alone. See model-origin.ts. Named to
+                    // match RECOMMENDED_CLOUD_MODEL exactly so the onboarding headline
+                    // recommendation block (which only shows once that exact model is
+                    // present) actually renders in e2e coverage.
                     {
-                      name: "gemma4:26b-cloud",
-                      model: "gemma4:26b-cloud",
+                      name: RECOMMENDED_CLOUD_MODEL,
+                      model: RECOMMENDED_CLOUD_MODEL,
                       size: 0,
                     },
                   ],

@@ -5,6 +5,18 @@ export function mapOllamaResponseError(
   response: Response,
   operation: "request" | "download" = "request",
 ): PublicError {
+  // 401 is the observed shape for an expired or missing Ollama Cloud session. 403 is
+  // left mapped to OLLAMA_ORIGIN_BLOCKED below and deliberately not folded in here:
+  // origin-blocking is real and common in local mode too, and the spec calls for
+  // narrowing this mapping only once the real unauthenticated response shape has been
+  // observed against a signed-in installation — which 401 now is.
+  if (response.status === 401) {
+    return new PublicError(
+      "OLLAMA_SIGNIN_REQUIRED",
+      "Ollama Cloud requires signing in.",
+      true,
+    );
+  }
   if (response.status === 403) {
     return new PublicError(
       "OLLAMA_ORIGIN_BLOCKED",

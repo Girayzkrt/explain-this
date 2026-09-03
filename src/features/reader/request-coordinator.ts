@@ -494,7 +494,7 @@ export class RequestCoordinator {
         if (blocksRequest(checkModeConsistency(selectedProvider, origin))) {
           throw new PublicError(
             "CLOUD_MODEL_IN_LOCAL_MODE",
-            "The selected model runs in Ollama's cloud, but this computer-only mode was chosen. Pick a local model or switch to Ollama Cloud in Settings.",
+            "The selected model runs in Ollama’s cloud, but this computer-only mode was chosen. Pick a local model or switch to Ollama Cloud in Settings.",
             true,
           );
         }

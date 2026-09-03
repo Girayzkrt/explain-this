@@ -542,7 +542,7 @@ describe("options onboarding", () => {
       });
     });
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Local model unavailable");
+    expect(screen.getByRole("alert")).toHaveTextContent("Model unavailable");
     expect(screen.getByRole("alert")).not.toHaveTextContent("Ollama is not running");
     const install = screen.getByRole("link", { name: /install ollama/i });
     expect(install).toHaveAttribute("href", "https://ollama.com/download");
@@ -730,7 +730,7 @@ describe("options onboarding", () => {
 
     const cloudOption = screen.getByRole("option", { name: /gemma4:26b-cloud/i });
     expect(cloudOption).toBeDisabled();
-    expect(cloudOption).toHaveAccessibleName(/runs in Ollama's cloud/i);
+    expect(cloudOption).toHaveAccessibleName(/runs in Ollama.s cloud/i);
   });
 
   it("disables a local model while the Ollama Cloud mode is active", async () => {
@@ -1231,6 +1231,14 @@ describe("options onboarding", () => {
             return structuredClone(settings);
           },
           async update(patch) {
+            // Only the toolbar-consent write is under test here; failing every write
+            // (including the earlier mode selection this flow passes through first)
+            // would surface an unrelated persistence failure before this test's own
+            // scenario is even reached.
+            if (!Object.hasOwn(patch, "automaticToolbar")) {
+              settings.preferences = { ...settings.preferences, ...patch };
+              return structuredClone(settings);
+            }
             order.push(`persist:${String(patch.automaticToolbar)}`);
             if (failurePoint === "persistence") {
               throw new Error("persist failed");
@@ -1601,7 +1609,7 @@ describe("options onboarding", () => {
     expect(
       screen.getByRole("heading", { name: /choose a local model/i }),
     ).toBeVisible();
-    expect(screen.getByText(/runs in Ollama's cloud/i)).toBeVisible();
+    expect(screen.getByText(/runs in Ollama.s cloud/i)).toBeVisible();
   });
 
   it("keeps the current model when it is still valid in the new mode", async () => {

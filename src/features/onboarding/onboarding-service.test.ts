@@ -67,6 +67,7 @@ class FakeProvider implements DownloadableModelProvider {
     { id: RECOMMENDED_MODEL, displayName: RECOMMENDED_MODEL, origin: "local" },
   ];
   details = new Map<string, ModelDetails>();
+  detailErrors = new Map<string, Error>();
   readonly chatCalls: ChatCall[] = [];
   readonly listCalls: AbortSignal[] = [];
   readonly downloadCalls: Array<{ model: string; signal: AbortSignal }> = [];
@@ -99,6 +100,8 @@ class FakeProvider implements DownloadableModelProvider {
     return this.listPlan(signal);
   }
   async getModelDetails(model: string): Promise<ModelDetails> {
+    const failure = this.detailErrors.get(model);
+    if (failure) throw failure;
     return (
       this.details.get(model) ?? { id: model, displayName: model, origin: "local" }
     );
@@ -347,6 +350,39 @@ describe("onboarding service", () => {
             displayName: "gemma4:26b-cloud",
             origin: "cloud",
           },
+        ],
+      },
+    ]);
+  });
+
+  // Observed on a real installation: Ollama answers /api/show with 403 and
+  // "ollama cloud is disabled" for a cloud model when OLLAMA_NO_CLOUD is set. That 403
+  // maps to OLLAMA_ORIGIN_BLOCKED, so one such model used to fail the whole listing and
+  // tell the reader to allow the extension origin — with setup unfinishable.
+  it("still lists a model whose details lookup fails", async () => {
+    const harness = createHarness();
+    harness.provider.models = [
+      { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+      { id: "gemma4:31b-cloud", displayName: "gemma4:31b-cloud", origin: "cloud" },
+    ];
+    harness.provider.detailErrors.set(
+      "gemma4:31b-cloud",
+      new PublicError(
+        "OLLAMA_ORIGIN_BLOCKED",
+        "Ollama blocked the extension origin.",
+        true,
+      ),
+    );
+
+    harness.port.send({ type: "list-models", mode: "ollama-local" });
+    await settle();
+
+    expect(harness.port.posted).toEqual([
+      {
+        type: "models-result",
+        models: [
+          { id: "gemma3:4b", displayName: "gemma3:4b", origin: "local" },
+          { id: "gemma4:31b-cloud", displayName: "gemma4:31b-cloud", origin: "cloud" },
         ],
       },
     ]);

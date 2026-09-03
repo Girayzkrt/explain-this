@@ -257,11 +257,18 @@ export class OnboardingService {
     }
     return Promise.all(
       models.map(async (model) => {
-        const details = await this.dependencies.provider.getModelDetails(
-          model.id,
-          signal,
-        );
-        if (!isCodeSpecialized(model.id, details.family)) return model;
+        // The details lookup only decides a cosmetic label, and it can fail for one
+        // model while the rest are fine — Ollama answers /api/show with 403 for a
+        // cloud model when cloud is disabled, which used to take the whole list down
+        // and surface as "Ollama needs this extension allowed".
+        let family: string | undefined;
+        try {
+          family = (await this.dependencies.provider.getModelDetails(model.id, signal))
+            .family;
+        } catch {
+          return model;
+        }
+        if (!isCodeSpecialized(model.id, family)) return model;
         return { ...model, displayName: `${model.displayName} · Code-specialized` };
       }),
     );

@@ -271,7 +271,3 @@ Every error code, what it means, and what to check:
 ## Security
 
 Report vulnerabilities privately, see [`SECURITY.md`](SECURITY.md).
-
-## License
-
-ISC. See [`LICENSE`](LICENSE).

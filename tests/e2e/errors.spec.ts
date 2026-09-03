@@ -100,9 +100,7 @@ test("reports a missing selected model in the reader card", async ({ e2e }) => {
 
   const notice = page.getByRole("alert");
   await expect(notice).toContainText("Selected model is unavailable");
-  await expect(notice).toContainText(
-    "The selected local model is no longer installed.",
-  );
+  await expect(notice).toContainText("The selected model is no longer installed.");
 });
 
 test("reports a generic provider failure as a retryable error", async ({ e2e }) => {
@@ -112,7 +110,7 @@ test("reports a generic provider failure as a retryable error", async ({ e2e }) 
   e2e.ollama.setScenario({ chat: "http-failure" });
   await e2e.extension.invokePackagedReader(page);
 
-  await expect(page.getByText("Local model could not finish")).toBeVisible();
+  await expect(page.getByText("Model could not finish")).toBeVisible();
 
   e2e.ollama.setScenario({ chat: "normal" });
   await page.getByRole("button", { name: "Try again" }).click();
@@ -126,7 +124,7 @@ test("times out a stream that never produces a first token", async ({ e2e }) => 
   e2e.ollama.setScenario({ chat: "slow-first-token" });
   await e2e.extension.invokePackagedReader(page);
 
-  await expect(page.getByText("Local model took too long to start")).toBeVisible();
+  await expect(page.getByText("Model took too long to start")).toBeVisible();
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
@@ -139,7 +137,7 @@ test("times out an idle stream while keeping the partial output visible", async 
   e2e.ollama.setScenario({ chat: "idle-stream" });
   await e2e.extension.invokePackagedReader(page);
 
-  await expect(page.getByText("Local explanation stopped")).toBeVisible();
+  await expect(page.getByText("Explanation timed out")).toBeVisible();
   await expect(page.getByRole("article", { name: "Local explanation" })).toContainText(
     "Partial output",
   );
@@ -155,7 +153,7 @@ test("surfaces a malformed stream while keeping the partial output visible", asy
   e2e.ollama.setScenario({ chat: "malformed-partial" });
   await e2e.extension.invokePackagedReader(page);
 
-  await expect(page.getByText("Local response could not be read")).toBeVisible();
+  await expect(page.getByText("Response could not be read")).toBeVisible();
   await expect(page.getByRole("article", { name: "Local explanation" })).toContainText(
     "Partial output",
   );
@@ -174,7 +172,7 @@ test("refuses an oversized dense-script selection before contacting the model", 
   const notice = page.getByRole("alert");
   await expect(notice).toContainText("Select less text");
   await expect(notice).toContainText(
-    "The selected passage is too large for a local explanation.",
+    "The selected passage is too large for an explanation.",
   );
   expect(e2e.ollama.requests.filter((request) => request.path === "/api/chat")).toEqual(
     [],

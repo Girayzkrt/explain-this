@@ -186,8 +186,10 @@ automation.
 - **Explanations can be wrong.** A small local model generates them and nothing verifies
   them.
 - **Prompt injection is not prevented.** A hostile page can steer the model's wording. What
-  is enforced: output cannot execute, and page text never leaves your device. See
-  [`SECURITY.md`](SECURITY.md).
+  is enforced: output cannot execute. In the default **On this computer** mode, page text
+  never leaves your device; in **Ollama Cloud** mode, your selection is sent to Ollama's
+  servers as normal for that mode — a successful injection cannot make it go anywhere
+  beyond that. See [`SECURITY.md`](SECURITY.md).
 - **Translation is experimental**, as above.
 - **Ollama must be installed and running.** The extension will not do it for you.
 - Chrome blocks extensions on `chrome://` pages and the Chrome Web Store.

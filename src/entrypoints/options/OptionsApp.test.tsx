@@ -229,9 +229,11 @@ describe("options onboarding", () => {
     expect(
       screen.getByRole("progressbar", { name: /setup progress/i }),
     ).toHaveAttribute("max", "4");
+    // The mode isn't chosen yet at Welcome, so the milestone can't claim "Local" —
+    // a reader who picks Ollama Cloud one screen later would see it proven wrong.
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "1Welcome",
-      "2Local model",
+      "2Model",
       "3Preferences",
       "4Ready",
     ]);
@@ -245,6 +247,34 @@ describe("options onboarding", () => {
 
     expect(screen.getByRole("progressbar", { name: /setup progress/i })).toHaveValue(2);
     expect(screen.getByText("2 of 4")).toBeVisible();
+  });
+
+  // The milestone label used to read "Local model" on every screen in every mode, so a
+  // reader in cloud mode saw it contradict the "Choose a cloud model" heading right next
+  // to it. It must track the mode actually chosen once one has been.
+  it("labels the model milestone by the mode actually chosen", async () => {
+    const localHarness = createHarness();
+    await reachModelChoice(localHarness);
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toContain(
+      "2Local model",
+    );
+
+    cleanup();
+
+    const cloudHarness = createHarness();
+    await reachCloudModelChoice(cloudHarness, [
+      {
+        id: RECOMMENDED_CLOUD_MODEL,
+        displayName: RECOMMENDED_CLOUD_MODEL,
+        origin: "cloud",
+      },
+    ]);
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toContain(
+      "2Cloud model",
+    );
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).not.toContain("2Local model");
   });
 
   // A free-text language box meant guessing at spellings the model may not honour.
@@ -722,6 +752,9 @@ describe("options onboarding", () => {
     const loadingEyebrow = document.querySelector(".eyebrow");
     expect(loadingEyebrow?.textContent).not.toMatch(/local/i);
     expect(loadingEyebrow?.textContent).not.toMatch(/cloud/i);
+    // The persistent sidebar renders even during hydration, so it must not promise
+    // locality either, before the reader has had any chance to choose a mode.
+    expect(document.body.textContent).not.toMatch(/stays on (this|your) computer/i);
 
     await act(async () => hydration.resolve(storedSettings(0)));
     const heading = screen.getByRole("heading", { name: /set up explain this/i });
@@ -729,6 +762,84 @@ describe("options onboarding", () => {
     expect(heading.textContent).not.toMatch(/local/i);
     expect(heading.textContent).not.toMatch(/cloud/i);
     expect(document.body.textContent).not.toMatch(/understand text locally/i);
+    // The welcome screen's own body copy used to promise "Selected text goes only to
+    // 127.0.0.1. No cloud account is required." — concrete and false the moment a
+    // reader picks Ollama Cloud one screen later.
+    expect(document.body.textContent).not.toMatch(/goes only to 127\.0\.0\.1/i);
+    expect(document.body.textContent).not.toMatch(/no cloud account is required/i);
+    expect(document.body.textContent).not.toMatch(/stays on (this|your) computer/i);
+  });
+
+  // The controller ruling behind this task: with cloud mode active, no rendered
+  // options screen may claim the reader's text stays on this computer. A prior task
+  // scoped its equivalent check to a single element specifically because the
+  // persistent sidebar still failed a document-wide assertion — this test is the one
+  // that makes that document-wide assertion possible, and it walks every reachable
+  // screen in cloud mode to prove it.
+  it("never claims the reading stays on this computer anywhere while cloud mode is active", async () => {
+    const cloudModel = {
+      id: RECOMMENDED_CLOUD_MODEL,
+      displayName: RECOMMENDED_CLOUD_MODEL,
+      origin: "cloud" as const,
+    };
+    const noLocalityClaim = /stays on (this|your) computer/i;
+    const harness = createHarness();
+
+    await reachCloudModelChoice(harness, [cloudModel]);
+    expect(document.body.textContent).not.toMatch(noLocalityClaim);
+    // The rail's step-2 milestone used to read "Local model" unconditionally, right next
+    // to a "Choose a cloud model" heading in this exact state.
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toContain(
+      "2Cloud model",
+    );
+    expect(document.body.textContent).not.toMatch(/2local model/i);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: `Use ${RECOMMENDED_CLOUD_MODEL}` }),
+    );
+    expect(
+      screen.getByRole("heading", { name: /choose how explanations read/i }),
+    ).toBeVisible();
+    expect(document.body.textContent).not.toMatch(noLocalityClaim);
+    expect(screen.getByText(/goes to the cloud model/i)).toBeVisible();
+
+    await submitChoices();
+    expect(
+      screen.getByRole("heading", { name: /testing your cloud model/i }),
+    ).toBeVisible();
+    expect(document.body.textContent).not.toMatch(noLocalityClaim);
+
+    act(() => {
+      harness.client.emit({
+        type: "readiness-result",
+        result: {
+          status: "ready",
+          firstTokenMs: 900,
+          tokensPerSecond: 18,
+          warnings: [],
+        },
+      });
+    });
+    expect(screen.getByRole("heading", { name: /^ready$/i })).toBeVisible();
+    expect(screen.getByText(/your cloud model is ready/i)).toBeVisible();
+    expect(screen.getByText(/read the cloud explanation/i)).toBeVisible();
+    expect(document.body.textContent).not.toMatch(noLocalityClaim);
+    expect(document.body.textContent).not.toMatch(/your local model is ready/i);
+
+    await userEvent.click(screen.getByRole("button", { name: /finish setup/i }));
+    harness.settings.onboardingVersion = 1;
+    act(() => harness.client.emit({ type: "onboarding-complete" }));
+
+    expect(
+      screen.getByRole("heading", { name: /explanation settings/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: /^cloud model$/i, level: 3 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: /^local model$/i, level: 3 }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(noLocalityClaim);
   });
 
   it("reports byte progress and exposes cancellation as a keyboard-operable button", async () => {
@@ -1072,7 +1183,7 @@ describe("options onboarding", () => {
       });
     });
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Local model could not finish");
+    expect(screen.getByRole("alert")).toHaveTextContent("Model could not finish");
     expect(screen.getByRole("alert")).not.toHaveTextContent(
       "The local check was interrupted",
     );

@@ -33,13 +33,13 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
     primaryAction: { intent: "retry", label: "Check again" },
   },
   NO_MODEL: {
-    title: "Choose a local model",
+    title: "Choose a model",
     explanation: "Ollama is ready, but no model is selected for explanations.",
     primaryAction: { intent: "choose-model", label: "Choose model" },
   },
   MODEL_NOT_FOUND: {
     title: "Selected model is unavailable",
-    explanation: "The selected local model is no longer installed.",
+    explanation: "The selected model is no longer installed.",
     primaryAction: { intent: "choose-model", label: "Choose model" },
   },
   CLOUD_MODEL_IN_LOCAL_MODE: {
@@ -50,26 +50,26 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
   },
   MODEL_DOWNLOAD_FAILED: {
     title: "Model download stopped",
-    explanation: "The local model could not finish downloading.",
+    explanation: "The model could not finish downloading.",
     primaryAction: { intent: "retry", label: "Try again" },
   },
   CONNECTION_TIMEOUT: {
-    title: "Local model took too long to connect",
+    title: "Model took too long to connect",
     explanation: "Ollama did not respond before the connection timed out.",
     primaryAction: { intent: "retry", label: "Try again" },
   },
   FIRST_TOKEN_TIMEOUT: {
-    title: "Local model took too long to start",
+    title: "Model took too long to start",
     explanation: "The model did not begin an explanation in time.",
     primaryAction: { intent: "retry", label: "Try again" },
   },
   STREAM_IDLE_TIMEOUT: {
-    title: "Local explanation stopped",
+    title: "Explanation timed out",
     explanation: "The model stopped responding before the explanation finished.",
     primaryAction: { intent: "retry", label: "Try again" },
   },
   MALFORMED_STREAM: {
-    title: "Local response could not be read",
+    title: "Response could not be read",
     explanation: "The model sent an incomplete response format.",
     primaryAction: { intent: "retry", label: "Try again" },
   },
@@ -93,7 +93,7 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
   },
   SELECTION_TOO_LARGE: {
     title: "Select less text",
-    explanation: "The selected passage is too large for a local explanation.",
+    explanation: "The selected passage is too large for an explanation.",
     primaryAction: { intent: "select-less-text", label: "Select less text" },
   },
   CONTEXT_TOO_LARGE: {
@@ -103,11 +103,11 @@ export const ERROR_PRESENTATIONS: Record<PublicErrorCode, ErrorPresentation> = {
   },
   REQUEST_CANCELLED: {
     title: "Explanation stopped",
-    explanation: "The local explanation was cancelled before it finished.",
+    explanation: "The explanation was cancelled before it finished.",
     primaryAction: { intent: "dismiss", label: "Dismiss" },
   },
   PROVIDER_ERROR: {
-    title: "Local model could not finish",
+    title: "Model could not finish",
     explanation: "Ollama could not complete this explanation.",
     primaryAction: { intent: "retry", label: "Try again" },
   },

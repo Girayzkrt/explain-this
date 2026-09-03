@@ -60,16 +60,31 @@ export function OptionsApp({ dependencies }: OptionsAppProps) {
     getUiLanguage: dependencies.getUiLanguage,
   });
   const step = onboardingStepNumber(controller.state);
+  // The step-2 milestone used to read "Local model" unconditionally, so it could sit
+  // right beside a "Choose a cloud model" heading and contradict it. The mode isn't
+  // known yet at Welcome/choosing-mode, so it stays neutral there; once chosen (every
+  // later step), it names the mode actually in effect.
+  const modeChosen =
+    controller.state.step !== "loading" &&
+    controller.state.step !== "welcome" &&
+    controller.state.step !== "choosing-mode";
+  const isCloudMode = controller.preferences.selectedProvider === "ollama-cloud";
+  const modelMilestoneLabel = modeChosen
+    ? isCloudMode
+      ? "Cloud model"
+      : "Local model"
+    : "Model";
 
   return (
     <main className="setup-shell">
-      <aside className="setup-rail" aria-label="Local setup sequence">
+      <aside className="setup-rail" aria-label="Setup sequence">
         <div>
           <p className="product-name">Explain This</p>
-          <h1>Local explanations, set up clearly.</h1>
+          <h1>Ollama-powered explanations, set up clearly.</h1>
           <p className="rail-intro">
-            Your reading stays on this computer. Ollama does the explanation work at a
-            local address.
+            Ollama does the explanation work, reached at a local address on this
+            computer. Whether your selected text stays there or continues on to
+            Ollama&apos;s cloud depends on the mode you choose.
           </p>
         </div>
 
@@ -84,6 +99,7 @@ export function OptionsApp({ dependencies }: OptionsAppProps) {
             const number = index + 1;
             const status =
               number < step ? "complete" : number === step ? "current" : "upcoming";
+            const displayLabel = index === 1 ? modelMilestoneLabel : label;
             return (
               <li
                 key={label}
@@ -91,7 +107,7 @@ export function OptionsApp({ dependencies }: OptionsAppProps) {
                 aria-current={status === "current" ? "step" : undefined}
               >
                 <span className="step-number">{number}</span>
-                <span>{label}</span>
+                <span>{displayLabel}</span>
               </li>
             );
           })}
@@ -128,12 +144,13 @@ function ActiveStep({
       return (
         <StepFrame eyebrow="Step 1 of 4" heading="Set up Explain This">
           <p>
-            Explain This uses Ollama on your computer. It cannot install or start Ollama
-            for you, but this setup checks each part and shows what to do.
+            Explain This uses Ollama, which runs on this computer. It cannot install or
+            start Ollama for you, but this setup checks each part and shows what to do.
           </p>
           <p className="privacy-line">
-            Selected text goes only to <code>127.0.0.1</code>. No cloud account is
-            required.
+            Ollama listens at a local address, <code>127.0.0.1</code>. The next step
+            lets you choose whether your selected text stays there or is sent on to
+            Ollama&apos;s cloud.
           </p>
           <button
             className="button button-primary"
@@ -582,6 +599,8 @@ function PreferencesStep({
   dependencies: OptionsAppDependencies;
 }) {
   const [draft, setDraft] = useState(controller.preferences);
+  const isCloudMode = controller.preferences.selectedProvider === "ollama-cloud";
+  const contextDestination = isCloudMode ? "the cloud model" : "your local model";
   const [nearbyContext, setNearbyContext] = useState(false);
   const [accessGranted, setAccessGranted] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
@@ -722,8 +741,9 @@ function PreferencesStep({
             <strong>Include nearby context</strong>
             <small>
               Off by default. A short piece of visible text beside your selection can
-              clarify pronouns and ambiguous phrases, but more page text goes to your
-              local model. Form values, hidden text, and unrelated regions are excluded.
+              clarify pronouns and ambiguous phrases, but more page text goes to{" "}
+              {contextDestination}. Form values, hidden text, and unrelated regions are
+              excluded.
             </small>
           </span>
         </label>
@@ -772,8 +792,12 @@ function ReadinessStep({
 }: {
   state: Extract<OnboardingState, { step: "readiness" }>;
 }) {
+  const isCloudMode = state.preferences.selectedProvider === "ollama-cloud";
   return (
-    <StepFrame eyebrow="Step 4 of 4" heading="Testing your local model">
+    <StepFrame
+      eyebrow="Step 4 of 4"
+      heading={isCloudMode ? "Testing your cloud model" : "Testing your local model"}
+    >
       <div className="working-status" role="status">
         <span className="status-pulse" aria-hidden="true" />
         Generating one harmless sample explanation…
@@ -799,6 +823,7 @@ function ReadyStep({
   resultState: Extract<OnboardingState, { step: "complete" }>;
 }) {
   const warning = resultState.result.status === "warning";
+  const isCloudMode = controller.preferences.selectedProvider === "ollama-cloud";
 
   return (
     <StepFrame eyebrow="Step 4 of 4" heading="Ready">
@@ -809,7 +834,9 @@ function ReadyStep({
         <strong>
           {warning
             ? "Your model is ready, but slower than recommended."
-            : "Your local model is ready."}
+            : isCloudMode
+              ? "Your cloud model is ready."
+              : "Your local model is ready."}
         </strong>
         <span>
           First response {resultState.result.firstTokenMs.toLocaleString()} ms ·{" "}
@@ -822,7 +849,9 @@ function ReadyStep({
         <ol>
           <li>Select text on a normal webpage.</li>
           <li>Use Explain This in the context menu or press Alt+Shift+E.</li>
-          <li>Read the local explanation beside the selection.</li>
+          <li>
+            Read the {isCloudMode ? "cloud" : "local"} explanation beside the selection.
+          </li>
         </ol>
       </div>
 
@@ -844,6 +873,7 @@ function SettingsStep({
   controller: OnboardingController;
   dependencies: OptionsAppDependencies;
 }) {
+  const isCloudMode = controller.preferences.selectedProvider === "ollama-cloud";
   const [blockedSites, setBlockedSites] = useState(controller.preferences.blockedSites);
   const [language, setLanguage] = useState(() =>
     resolveLanguageName(controller.preferences.preferredLanguage),
@@ -1011,7 +1041,7 @@ function SettingsStep({
       </div>
 
       <div className="settings-group">
-        <h3>Local model</h3>
+        <h3>{isCloudMode ? "Cloud model" : "Local model"}</h3>
         <p className="field-help">
           Currently using <code>{controller.preferences.selectedModel}</code>. Changing
           the model or the Ollama connection runs setup again from the runtime check.

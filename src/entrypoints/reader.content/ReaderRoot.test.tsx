@@ -260,9 +260,7 @@ describe("reader in-page UI", () => {
     harness.delta("Partial answer");
     harness.connection.suspend();
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      /local model could not finish/i,
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/model could not finish/i);
     expect(screen.getByRole("alert")).not.toHaveTextContent(/connection.*interrupted/i);
     expect(screen.getByText(/incomplete/i)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: /try again/i }));

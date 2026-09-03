@@ -18,7 +18,7 @@ describe("PublicErrorNotice", () => {
       />,
     );
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Local model could not finish");
+    expect(screen.getByRole("alert")).toHaveTextContent("Model could not finish");
     expect(screen.getByRole("alert")).not.toHaveTextContent("token=do-not-display");
     expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
     expect(

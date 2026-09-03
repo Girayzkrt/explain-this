@@ -210,9 +210,7 @@ describe("focused explanation side panel", () => {
         },
       });
     });
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      /local model could not finish/i,
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/model could not finish/i);
     expect(screen.getByRole("alert")).not.toHaveTextContent(/private provider body/i);
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(controller.retryCalls).toBe(1);

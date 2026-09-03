@@ -6,6 +6,7 @@ import {
   MAX_SELECTION_PREVIEW_CHARACTERS,
   type ReaderSession,
 } from "../../features/reader/session";
+import { SelectedProviderSchema } from "../../features/settings/settings";
 import type { PublicErrorShape, StreamEvent } from "../../providers/provider";
 
 export interface ReaderStartRequest {
@@ -81,6 +82,7 @@ const ReaderSessionSchema = z
     lastSequence: z.number().int().min(-1),
     error: PublicErrorSchema.optional(),
     origin: z.url(),
+    provider: SelectedProviderSchema.optional(),
   })
   .strict();
 const ReaderStartRequestSchema = z

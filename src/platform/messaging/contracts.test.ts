@@ -182,4 +182,63 @@ describe("reader port message contract", () => {
       parseReaderSession({ ...safeSession, selection: "Private source text" }),
     ).toBeUndefined();
   });
+
+  it.each(["ollama-local", "ollama-cloud"] as const)(
+    "accepts a stored session carrying the known provider %s",
+    (provider) => {
+      const withProvider = {
+        tabId: 7,
+        requestId: REQUEST_ID,
+        selectionPreview: "A bounded selection.",
+        action: "explain",
+        contextIncluded: false,
+        status: "completed",
+        answer: "A bounded answer.",
+        lastSequence: 0,
+        origin: "https://reader.example",
+        provider,
+      };
+
+      expect(parseReaderSession(withProvider)).toEqual(withProvider);
+    },
+  );
+
+  it("keeps a session with no provider field valid, and rejects an unknown provider value", () => {
+    const withoutProvider = {
+      tabId: 7,
+      requestId: REQUEST_ID,
+      selectionPreview: "A bounded selection.",
+      action: "explain",
+      contextIncluded: false,
+      status: "completed",
+      answer: "A bounded answer.",
+      lastSequence: 0,
+      origin: "https://reader.example",
+    };
+
+    expect(parseReaderSession(withoutProvider)).toEqual(withoutProvider);
+    expect(
+      parseReaderSession({ ...withoutProvider, provider: "attacker-cloud" }),
+    ).toBeUndefined();
+  });
+
+  it("round-trips a session-snapshot port message that carries a known provider", () => {
+    const message = {
+      type: "session-snapshot",
+      session: {
+        tabId: 7,
+        requestId: REQUEST_ID,
+        selectionPreview: "A bounded selection.",
+        action: "explain",
+        contextIncluded: false,
+        status: "completed",
+        answer: "A bounded answer.",
+        lastSequence: 0,
+        origin: "https://reader.example",
+        provider: "ollama-cloud",
+      },
+    };
+
+    expect(parseBackgroundPortMessage(message)).toEqual(message);
+  });
 });

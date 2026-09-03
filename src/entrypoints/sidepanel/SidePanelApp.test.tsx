@@ -121,10 +121,58 @@ describe("focused explanation side panel", () => {
     expect(controller.loadCalls).toBe(1);
   });
 
+  it("never claims local processing while a cloud-mode session streams", () => {
+    renderPanel({
+      status: "session",
+      session: session({ status: "streaming", provider: "ollama-cloud" }),
+    });
+
+    expect(screen.getByText("Cloud reader")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Explaining via Ollama's cloud…",
+    );
+    expect(screen.getByRole("status")).not.toHaveTextContent(/locally/i);
+    expect(screen.queryByText("Local reader")).not.toBeInTheDocument();
+  });
+
+  it("keeps the local reassurance when the session's provider is local", () => {
+    renderPanel({
+      status: "session",
+      session: session({ status: "streaming", provider: "ollama-local" }),
+    });
+
+    expect(screen.getByText("Local reader")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(/explaining locally/i);
+  });
+
+  it("renders neutral wording that claims neither mode when the provider is unknown", () => {
+    const { session: builtSession } = { session: session({ status: "streaming" }) };
+    expect(builtSession.provider).toBeUndefined();
+    renderPanel({ status: "session", session: builtSession });
+
+    expect(screen.getByText("Reader")).toBeVisible();
+    expect(screen.queryByText("Local reader")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cloud reader")).not.toBeInTheDocument();
+    const status = screen.getByRole("status");
+    expect(status).not.toHaveTextContent(/local/i);
+    expect(status).not.toHaveTextContent(/cloud/i);
+  });
+
+  it("uses neutral wording in the empty state, before any session exists", () => {
+    renderPanel({ status: "empty" });
+
+    expect(screen.getByText("Reader")).toBeVisible();
+    expect(screen.queryByText("Local reader")).not.toBeInTheDocument();
+  });
+
   it("shows streamed status and preserves partial output as incomplete", () => {
     const { controller } = renderPanel({
       status: "session",
-      session: session({ status: "streaming", answer: "A partial answer" }),
+      session: session({
+        status: "streaming",
+        answer: "A partial answer",
+        provider: "ollama-local",
+      }),
     });
 
     expect(screen.getByRole("status")).toHaveTextContent(/explaining locally/i);

@@ -615,6 +615,36 @@ describe("RequestCoordinator", () => {
     expect(JSON.stringify(port.posted)).not.toContain("private host");
   });
 
+  it.each(["ollama-local", "ollama-cloud"] as const)(
+    "stamps the session with the preference's selected provider (%s)",
+    async (selectedProvider) => {
+      const { coordinator, provider, sessionRepository } = createHarness({
+        ...DEFAULT_PREFERENCES,
+        selectedProvider,
+      });
+      const port = new TestPort();
+      provider.plans.push(
+        finitePlan([
+          { type: "started", requestId: REQUEST_1 },
+          { type: "completed", requestId: REQUEST_1 },
+        ]),
+      );
+
+      coordinator.handle(port, sender());
+      port.send({ type: "start-request", request: request() });
+
+      await vi.waitFor(() =>
+        expect(port.posted).toContainEqual({
+          type: "session-snapshot",
+          session: expect.objectContaining({ provider: selectedProvider }),
+        }),
+      );
+      await expect(sessionRepository.getReaderSession(TAB_ID)).resolves.toMatchObject({
+        provider: selectedProvider,
+      });
+    },
+  );
+
   it("refuses to start a request when local mode has a cloud model selected", async () => {
     const { coordinator, provider } = createHarness({
       ...DEFAULT_PREFERENCES,

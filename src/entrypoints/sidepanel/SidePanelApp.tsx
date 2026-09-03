@@ -3,6 +3,7 @@ import type { FollowUpIntent, ReadingAction } from "../../core/requests/types";
 import { Settings } from "lucide-react";
 import { PublicErrorNotice } from "../../components/PublicErrorNotice";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
+import { providerCopy } from "../../features/reader/provider-copy";
 import type { SidePanelController } from "../../features/reader/sidepanel-controller";
 
 export interface SidePanelAppProps {
@@ -50,7 +51,7 @@ export function SidePanelApp({
     return (
       <main className="sidepanel-shell sidepanel-empty">
         <header className="panel-titlebar">
-          <p className="panel-kicker">Local reader</p>
+          <p className="panel-kicker">{providerCopy(undefined).kicker}</p>
           <h1>Explain This</h1>
         </header>
         <section className="empty-instructions" aria-labelledby="empty-title">
@@ -75,12 +76,13 @@ export function SidePanelApp({
   const active = session.status === "pending" || session.status === "streaming";
   const incomplete = session.status === "cancelled" || session.status === "failed";
   const visibleError = actionError ?? session.error;
+  const copy = providerCopy(session.provider);
 
   return (
     <main className="sidepanel-shell">
       <header className="source-region">
         <div className="panel-titlebar">
-          <p className="panel-kicker">Local reader</p>
+          <p className="panel-kicker">{copy.kicker}</p>
           <h1>Explain This</h1>
         </div>
         <div className="source-slip">
@@ -98,9 +100,7 @@ export function SidePanelApp({
       <section className="answer-region" aria-label="Explanation">
         {active ? (
           <p className="stream-status" role="status">
-            {session.status === "pending"
-              ? "Connecting to local model…"
-              : "Explaining locally…"}
+            {session.status === "pending" ? copy.connecting : copy.explaining}
           </p>
         ) : null}
         {visibleError ? (

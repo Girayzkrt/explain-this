@@ -95,6 +95,32 @@ describe("session repository", () => {
     expect(Array.from(stored.selectionPreview)).toHaveLength(240);
   });
 
+  it("persists the optional provider field instead of stripping it as unknown", async () => {
+    const storage = new MemoryStorageArea();
+    const repository = createSessionRepository(storage);
+    const withProvider: ReaderSession = {
+      ...readerSession(),
+      provider: "ollama-cloud",
+    };
+
+    await repository.putReaderSession(withProvider);
+
+    await expect(repository.getReaderSession(7)).resolves.toEqual(withProvider);
+    await expect(storage.snapshot()).resolves.toEqual({
+      "reader-session:7": withProvider,
+    });
+  });
+
+  it("leaves the provider field absent when the session never carried one", async () => {
+    const repository = createSessionRepository(new MemoryStorageArea());
+
+    await repository.putReaderSession(readerSession());
+
+    const stored = await repository.getReaderSession(7);
+    expect(stored?.provider).toBeUndefined();
+    expect(stored).not.toHaveProperty("provider");
+  });
+
   it("stores only serializable allowlisted fields in the public session", async () => {
     const storage = new MemoryStorageArea();
     const repository = createSessionRepository(storage);

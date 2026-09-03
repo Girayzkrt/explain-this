@@ -1,4 +1,5 @@
 import type { ReadingAction } from "../../core/requests/types";
+import type { SelectedProvider } from "../settings/settings";
 import type { PublicErrorShape, StreamEvent } from "../../providers/provider";
 
 export const MAX_SELECTION_PREVIEW_CHARACTERS = 240;
@@ -19,6 +20,13 @@ export interface ReaderSession {
   lastSequence: number;
   error?: PublicErrorShape;
   origin: string;
+  /**
+   * The provider mode this request actually ran under, locked in at creation.
+   * Optional: absent for sessions persisted before this field existed, and for
+   * any record that otherwise failed to carry it. Rendering code must treat an
+   * absent field as unknown and never assume local processing from its absence.
+   */
+  provider?: SelectedProvider;
 }
 
 /** Trusted background-only request material. Never expose this through the UI session. */
@@ -45,6 +53,7 @@ function startSession(session: ReaderSession): ReaderSession {
     answer: "",
     lastSequence: -1,
     origin: session.origin,
+    ...(session.provider === undefined ? {} : { provider: session.provider }),
   };
 }
 

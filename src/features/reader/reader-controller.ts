@@ -8,6 +8,8 @@ import type {
 import type { ReaderInvocationCommand } from "../../platform/messaging/reader-command";
 import type { ReaderRuntimeConfig } from "../../platform/messaging/reader-runtime";
 import type { PublicErrorShape, StreamEvent } from "../../providers/provider";
+import type { SelectedProvider } from "../settings/settings";
+import type { ReaderSession } from "./session";
 
 interface ReaderSurfaceState {
   requestId: string;
@@ -15,6 +17,12 @@ interface ReaderSurfaceState {
   action: ReadingAction;
   contextIncluded: boolean;
   anchor: SelectionSnapshot;
+  /**
+   * The provider mode the background reports for this request. Absent until a
+   * session-snapshot arrives (or for a record that never carried one), and
+   * rendering code must treat that absence as unknown, not local.
+   */
+  provider?: SelectedProvider;
 }
 
 interface ReaderAnswerState extends ReaderSurfaceState {
@@ -104,6 +112,7 @@ function surfaceOf(state: ReaderUiState): ReaderSurfaceState | undefined {
       action: state.action,
       contextIncluded: state.contextIncluded,
       anchor: state.anchor,
+      ...(state.provider === undefined ? {} : { provider: state.provider }),
     };
   }
   return undefined;
@@ -384,6 +393,26 @@ export class ReaderController {
       return;
     }
     if (message.type === "stream-event") this.receiveEvent(message.event);
+    if (message.type === "session-snapshot") {
+      this.receiveSessionSnapshot(message.session);
+    }
+  }
+
+  /**
+   * The background locks the provider mode into the session at creation and
+   * reports it here. This is the only place the in-page surface learns which
+   * mode a request actually runs under — nothing here may fall back to a local
+   * assumption for a request whose reported provider is still unknown.
+   */
+  private receiveSessionSnapshot(session: ReaderSession): void {
+    const active = this.active;
+    if (!active || session.requestId !== active.requestId) return;
+    if (session.provider === undefined) return;
+    if (!("requestId" in this.state) || this.state.requestId !== session.requestId) {
+      return;
+    }
+    if (this.state.provider === session.provider) return;
+    this.setState({ ...this.state, provider: session.provider });
   }
 
   private receiveEvent(event: StreamEvent): void {

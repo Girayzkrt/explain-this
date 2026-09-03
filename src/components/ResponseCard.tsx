@@ -1,5 +1,6 @@
 import { Copy, PanelRight, Square, X } from "lucide-react";
 import type { FollowUpIntent } from "../core/requests/types";
+import { providerCopy } from "../features/reader/provider-copy";
 import type { ReaderUiState } from "../features/reader/reader-controller";
 import { PublicErrorNotice } from "./PublicErrorNotice";
 import { SafeMarkdown } from "./SafeMarkdown";
@@ -38,6 +39,10 @@ function answerFor(state: ResponseState): string {
   return "answer" in state ? state.answer : "";
 }
 
+function providerOf(state: ResponseState) {
+  return "provider" in state ? state.provider : undefined;
+}
+
 export function ResponseCard({
   state,
   onStop,
@@ -54,11 +59,12 @@ export function ResponseCard({
   const answer = answerFor(state);
   const active = state.status === "connecting" || state.status === "generating";
   const incomplete = state.status === "cancelled" || state.status === "failed";
+  const copy = providerCopy(providerOf(state));
 
   return (
     <article
       className={`reader-card reader-card-${state.status}`}
-      aria-label="Local explanation"
+      aria-label={copy.ariaLabel}
     >
       <div className="reader-spine" aria-hidden="true" />
       <header className="reader-card-header">
@@ -78,9 +84,7 @@ export function ResponseCard({
 
       {active ? (
         <p className="reader-status" role="status">
-          {state.status === "connecting"
-            ? "Connecting to local model…"
-            : "Explaining locally…"}
+          {state.status === "connecting" ? copy.connecting : copy.explaining}
         </p>
       ) : null}
       {state.status === "failed" ? (

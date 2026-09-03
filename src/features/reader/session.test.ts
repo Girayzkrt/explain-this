@@ -250,6 +250,40 @@ describe("reduceReaderSession", () => {
     },
   );
 
+  it("preserves an optional provider field across the streaming lifecycle", () => {
+    const initial: ReaderSession = { ...session(), provider: "ollama-cloud" };
+
+    const started = reduceReaderSession(initial, {
+      type: "started",
+      requestId: "request-1",
+    });
+    expect(started.provider).toBe("ollama-cloud");
+
+    const delta = reduceReaderSession(started, {
+      type: "delta",
+      requestId: "request-1",
+      sequence: 0,
+      text: "answer",
+    });
+    expect(delta.provider).toBe("ollama-cloud");
+
+    const completed = reduceReaderSession(delta, {
+      type: "completed",
+      requestId: "request-1",
+    });
+    expect(completed.provider).toBe("ollama-cloud");
+  });
+
+  it("leaves the provider field absent when the session never carried one", () => {
+    const started = reduceReaderSession(session(), {
+      type: "started",
+      requestId: "request-1",
+    });
+
+    expect(started.provider).toBeUndefined();
+    expect(session().provider).toBeUndefined();
+  });
+
   it("serializes only JSON-safe public session fields", () => {
     const publicSession = session();
     const serialized = JSON.stringify(publicSession);

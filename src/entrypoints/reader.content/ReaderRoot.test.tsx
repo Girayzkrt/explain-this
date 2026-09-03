@@ -97,8 +97,23 @@ function createUiHarness(includeNearbyContext = false) {
     async openActions() {
       await act(() => controller.selectionCompleted());
     },
-    start() {
+    start(provider?: "ollama-local" | "ollama-cloud") {
       act(() => controller.startAction("explain"));
+      connection.emit({
+        type: "session-snapshot",
+        session: {
+          tabId: 3,
+          requestId: REQUEST_ID,
+          selectionPreview: selectedElement.textContent ?? "",
+          action: "explain",
+          contextIncluded: includeNearbyContext,
+          status: "pending",
+          answer: "",
+          lastSequence: -1,
+          origin: "https://reader.example",
+          ...(provider === undefined ? {} : { provider }),
+        },
+      });
       connection.emit({
         type: "stream-event",
         event: { type: "started", requestId: REQUEST_ID },
@@ -149,7 +164,7 @@ describe("reader in-page UI", () => {
   it("shows generation status, partial Markdown, context use, and Stop", async () => {
     const harness = createUiHarness(true);
     await harness.openActions();
-    harness.start();
+    harness.start("ollama-local");
     harness.delta("A **local** explanation.");
 
     expect(screen.getByRole("status")).toHaveTextContent(/explaining locally/i);
@@ -160,6 +175,38 @@ describe("reader in-page UI", () => {
       type: "cancel-request",
       requestId: REQUEST_ID,
     });
+  });
+
+  it("never claims local processing once the background reports a cloud-mode session", async () => {
+    const harness = createUiHarness();
+    await harness.openActions();
+    harness.start("ollama-cloud");
+    harness.delta("An explanation.");
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(/ollama/i);
+    expect(status).not.toHaveTextContent(/locally/i);
+    expect(screen.getByRole("article").getAttribute("aria-label")).not.toMatch(
+      /local/i,
+    );
+  });
+
+  it("claims neither mode before the background reports which provider is in use", async () => {
+    const harness = createUiHarness();
+    await harness.openActions();
+    act(() => harness.controller.startAction("explain"));
+    harness.connection.emit({
+      type: "stream-event",
+      event: { type: "started", requestId: REQUEST_ID },
+    });
+    harness.delta("An explanation.");
+
+    const status = screen.getByRole("status");
+    expect(status).not.toHaveTextContent(/local/i);
+    expect(status).not.toHaveTextContent(/cloud/i);
+    const label = screen.getByRole("article").getAttribute("aria-label");
+    expect(label).not.toMatch(/local/i);
+    expect(label).not.toMatch(/cloud/i);
   });
 
   it("does not let response-control mouseup restart the page selection flow", async () => {

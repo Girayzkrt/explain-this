@@ -406,6 +406,7 @@ export class RequestCoordinator {
       answer: "",
       lastSequence: -1,
       origin: context.origin,
+      provider: request.preferences.selectedProvider,
     };
     const source: PrivateSourceEnvelope = {
       requestId: request.requestId,

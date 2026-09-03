@@ -334,6 +334,66 @@ describe("reader controller", () => {
     });
   });
 
+  it("adopts the provider a session-snapshot reports and carries it through the lifecycle", async () => {
+    const harness = createHarness({ capture: snapshot() });
+    await harness.controller.selectionCompleted();
+    harness.controller.startAction("explain");
+    const port = harness.connections[0];
+
+    expect(harness.controller.getState()).not.toHaveProperty("provider");
+
+    port?.emit({
+      type: "session-snapshot",
+      session: {
+        tabId: 1,
+        requestId: REQUEST_ID,
+        selectionPreview: "A difficult selected sentence.",
+        action: "explain",
+        contextIncluded: false,
+        status: "pending",
+        answer: "",
+        lastSequence: -1,
+        origin: "https://reader.example",
+        provider: "ollama-cloud",
+      },
+    });
+    expect(harness.controller.getState()).toMatchObject({ provider: "ollama-cloud" });
+
+    port?.emit({
+      type: "stream-event",
+      event: { type: "started", requestId: REQUEST_ID },
+    });
+    expect(harness.controller.getState()).toMatchObject({
+      status: "generating",
+      provider: "ollama-cloud",
+    });
+  });
+
+  it("ignores a session-snapshot for a different request than the active one", async () => {
+    const harness = createHarness({ capture: snapshot() });
+    await harness.controller.selectionCompleted();
+    harness.controller.startAction("explain");
+    const port = harness.connections[0];
+
+    port?.emit({
+      type: "session-snapshot",
+      session: {
+        tabId: 1,
+        requestId: "stale-request",
+        selectionPreview: "stale",
+        action: "explain",
+        contextIncluded: false,
+        status: "pending",
+        answer: "",
+        lastSequence: -1,
+        origin: "https://reader.example",
+        provider: "ollama-cloud",
+      },
+    });
+
+    expect(harness.controller.getState()).not.toHaveProperty("provider");
+  });
+
   it("cancels a scheduled animation frame when a terminal event flushes deltas", async () => {
     const harness = createHarness({ capture: snapshot() });
     await harness.controller.selectionCompleted();

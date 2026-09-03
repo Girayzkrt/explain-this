@@ -8,6 +8,7 @@ import {
   type PrivateSourceEnvelope,
   type ReaderSession,
 } from "../../features/reader/session";
+import { SelectedProviderSchema } from "../../features/settings/settings";
 import type { StorageAreaLike } from "./storage-area";
 
 const PublicErrorSchema = z
@@ -35,6 +36,7 @@ const ReaderSessionSchema = z.object({
   lastSequence: z.number().int().min(-1),
   error: PublicErrorSchema.optional(),
   origin: z.string().min(1),
+  provider: SelectedProviderSchema.optional(),
 });
 
 const PrivateSourceEnvelopeSchema = z.object({
@@ -73,6 +75,7 @@ function toReaderSession(value: z.output<typeof ReaderSessionSchema>): ReaderSes
     origin: value.origin,
   };
   if (value.error !== undefined) session.error = value.error;
+  if (value.provider !== undefined) session.provider = value.provider;
   return session;
 }
 

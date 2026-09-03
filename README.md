@@ -2,9 +2,10 @@
 
 Understand anything you read, without leaving the page.
 
-Select a passage, press a shortcut, and get a plain-language explanation from a model
-running on your own machine. No account, no cloud, no telemetry — the text you read never
-leaves your computer.
+Select a passage, press a shortcut, and get a plain-language explanation from a model you
+choose during setup: on your own machine by default, or on Ollama's cloud servers if you
+opt in. No account, no telemetry. In the default mode, the text you read never leaves your
+computer.
 
 ![The reader card explaining a selected passage](docs/assets/selection-card.png)
 
@@ -17,12 +18,21 @@ Generic AI sidebars can explain, but they send the page — or the whole tab —
 else's server, and they answer in a chat window that pulls you away from what you were
 reading.
 
-Explain This does one job: it explains the passage you selected, in place, using a model on
-your machine. Four actions, four follow-ups, no chat box.
+Explain This does one job: it explains the passage you selected, in place, using the model
+you chose at setup. Four actions, four follow-ups, no chat box.
 
 ## Privacy promise
 
-- The only network destination is **your own machine**, `http://127.0.0.1:11434`.
+Where your reading goes depends on the mode you choose during setup.
+
+| Mode             | Where your selected text goes                                  |
+| ---------------- | -------------------------------------------------------------- |
+| On this computer | Nowhere. The model runs locally through Ollama.                |
+| Ollama Cloud     | To Ollama's servers. Ollama states that it does not retain it. |
+
+The default is **On this computer**. Nothing changes mode without you choosing it in setup
+or in Settings.
+
 - Only the text **you select** is sent. Nearby context is opt-in and **off by default**.
 - Page text and model output are **never written to persistent storage**.
 - No telemetry, no analytics, no account.
@@ -185,7 +195,8 @@ automation.
 ## Roadmap
 
 Larger-model support for translation, more explanation levels, and additional local
-providers. Cloud inference is explicitly not planned.
+providers. Ollama Cloud is already supported as an opt-in mode; see
+[Privacy promise](#privacy-promise) for what that changes.
 
 ## Troubleshooting
 

@@ -1,26 +1,34 @@
 # Privacy
 
-Explain This is built so that the text you read never leaves your computer. This document
-states exactly what is handled, where it goes, how long it lives, and what you control.
+Where your reading goes depends on the mode you choose during setup, and nothing changes
+mode without you choosing it there or in Settings. This document states exactly what is
+handled, where it goes, how long it lives, and what you control.
 
 ## The short version
 
-- The only network destination is **your own machine**: `http://127.0.0.1:11434`.
-- Only the text **you select** is sent to the local model. Nearby context is opt-in and off
+| Mode             | Where your selected text goes                                  |
+| ---------------- | -------------------------------------------------------------- |
+| On this computer | Nowhere. The model runs locally through Ollama.                |
+| Ollama Cloud     | To Ollama's servers. Ollama states that it does not retain it. |
+
+The default is **On this computer**, and in that mode the text you read never leaves your
+computer.
+
+- Only the text **you select** is sent to the model. Nearby context is opt-in and off
   by default.
 - Page text and model output are **never written to persistent storage**.
 - There is no telemetry, no analytics, no remote logging, and no account.
 
 ## Data inventory
 
-| Data item          | Source                                              | Destination                              | Stored where, for how long                                                                               | Your control                                             |
-| ------------------ | --------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Selected text      | Your selection                                      | Local Ollama on loopback                 | `storage.session` while the request is live; deleted when the tab navigates, closes, or the browser ends | Select nothing and nothing is sent                       |
-| Nearby context     | Nearest visible reading blocks around the selection | Local Ollama on loopback                 | Same as above                                                                                            | **Off by default**; opt in per preference                |
-| Model output       | Local Ollama                                        | Reader card and side panel               | `storage.session` for the current request only                                                           | Close the card                                           |
-| Preferences        | You, during onboarding                              | Never leaves the device                  | `storage.local` until you change or remove them                                                          | Editable in Settings                                     |
-| Blocked hostnames  | You                                                 | Never leaves the device                  | `storage.local` as hostnames only                                                                        | Editable in Settings                                     |
-| Diagnostics report | Local setup facts                                   | Your clipboard, only when you click Copy | Not stored                                                                                               | Built from an allowlist; contains no page text or output |
+| Data item          | Source                                              | Destination                                                                                | Stored where, for how long                                                                               | Your control                                             |
+| ------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Selected text      | Your selection                                      | Local Ollama on loopback, which forwards it to Ollama's cloud servers in Ollama Cloud mode | `storage.session` while the request is live; deleted when the tab navigates, closes, or the browser ends | Select nothing and nothing is sent                       |
+| Nearby context     | Nearest visible reading blocks around the selection | Same as selected text                                                                      | Same as above                                                                                            | **Off by default**; opt in per preference                |
+| Model output       | Local Ollama                                        | Reader card and side panel                                                                 | `storage.session` for the current request only                                                           | Close the card                                           |
+| Preferences        | You, during onboarding                              | Never leaves the device                                                                    | `storage.local` until you change or remove them                                                          | Editable in Settings                                     |
+| Blocked hostnames  | You                                                 | Never leaves the device                                                                    | `storage.local` as hostnames only                                                                        | Editable in Settings                                     |
+| Diagnostics report | Local setup facts                                   | Your clipboard, only when you click Copy                                                   | Not stored                                                                                               | Built from an allowlist; contains no page text or output |
 
 `storage.session` is cleared by the browser when the browser closes. The extension also
 deletes a tab's entries when that tab navigates away or is closed.

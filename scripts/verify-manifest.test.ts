@@ -129,4 +129,23 @@ describe("manifest verification", () => {
   it("reports a non-object manifest instead of throwing", () => {
     expect(checks(verifyManifest("not a manifest"))).toContain("manifest-shape");
   });
+
+  // Pins the allowlist so a later task cannot loosen it silently: a hosted model API
+  // added straight to required host permissions must still be rejected, even alongside
+  // an otherwise-valid loopback origin.
+  it("rejects a hosted model API added to required host permissions", () => {
+    const problems = verifyManifest({
+      manifest_version: 3,
+      minimum_chrome_version: 116,
+      permissions: ["activeTab", "contextMenus", "scripting", "sidePanel", "storage"],
+      host_permissions: [
+        "http://127.0.0.1:11434/*",
+        "https://generativelanguage.googleapis.com/*",
+      ],
+    });
+
+    expect(problems).toContainEqual(
+      expect.objectContaining({ check: "required-host-permissions" }),
+    );
+  });
 });

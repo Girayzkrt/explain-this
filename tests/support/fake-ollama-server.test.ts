@@ -117,6 +117,11 @@ describe("fake Ollama contract server", () => {
           size: 1_930_000_000,
           details: { family: "qwen2.5", parameter_size: "3B" },
         }),
+        expect.objectContaining({
+          name: "gemma4:26b-cloud",
+          model: "gemma4:26b-cloud",
+          size: 0,
+        }),
       ],
     });
   });
@@ -132,7 +137,10 @@ describe("fake Ollama contract server", () => {
     await expect(
       fetch(`${server.baseUrl}/api/tags`).then((response) => response.json()),
     ).resolves.toEqual({
-      models: [expect.objectContaining({ name: RECOMMENDED_MODEL })],
+      models: [
+        expect.objectContaining({ name: RECOMMENDED_MODEL }),
+        expect.objectContaining({ name: "gemma4:26b-cloud" }),
+      ],
     });
   });
 

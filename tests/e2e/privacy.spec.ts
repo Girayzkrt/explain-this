@@ -24,7 +24,7 @@ function completedSettings(includeNearbyContext: boolean) {
         explanationLevel: "everyday",
         preserveEnglishTerms: true,
         includeNearbyContext,
-        selectedProvider: "ollama",
+        selectedProvider: "ollama-local",
         selectedModel: RECOMMENDED_MODEL,
         automaticToolbar: true,
         blockedSites: [],

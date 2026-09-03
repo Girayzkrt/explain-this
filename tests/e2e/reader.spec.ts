@@ -10,7 +10,7 @@ const completedSettings = {
       explanationLevel: "everyday",
       preserveEnglishTerms: true,
       includeNearbyContext: false,
-      selectedProvider: "ollama",
+      selectedProvider: "ollama-local",
       selectedModel: RECOMMENDED_MODEL,
       automaticToolbar: true,
       blockedSites: [],

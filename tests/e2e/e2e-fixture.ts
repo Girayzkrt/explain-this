@@ -1,4 +1,4 @@
-import { expect, test as base } from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
 import {
   buildExtension,
   closeResourcesInOrder,
@@ -89,5 +89,17 @@ export const test = base.extend<Record<never, never>, { e2e: E2eFixture }>({
     { scope: "worker" },
   ],
 });
+
+/**
+ * Walks the welcome screen and the mode-choice screen that now sits in front of the
+ * runtime check, choosing "on this computer" so onboarding proceeds exactly as it did
+ * before the mode screen existed. Every spec written before that screen landed assumes
+ * local mode, so this keeps their assertions' original meaning instead of repeating the
+ * two clicks in each one.
+ */
+export async function beginLocalSetup(options: Page): Promise<void> {
+  await options.getByRole("button", { name: "Start setup" }).click();
+  await options.getByRole("button", { name: "Use this computer" }).click();
+}
 
 export { expect };

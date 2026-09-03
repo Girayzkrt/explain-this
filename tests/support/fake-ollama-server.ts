@@ -220,6 +220,14 @@ export async function startFakeOllamaServer(): Promise<FakeOllamaServer> {
                       digest: "sha256:fake-contract",
                       details: { family: "qwen2.5", parameter_size: "3B" },
                     },
+                    // A cloud-origin model, distinguishable by two independent signals (the
+                    // "-cloud" name suffix and a zero/absent size) so origin detection does
+                    // not depend on either heuristic alone. See model-origin.ts.
+                    {
+                      name: "gemma4:26b-cloud",
+                      model: "gemma4:26b-cloud",
+                      size: 0,
+                    },
                   ],
           });
         }

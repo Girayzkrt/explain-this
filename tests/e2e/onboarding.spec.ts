@@ -1,5 +1,5 @@
 import { RECOMMENDED_MODEL } from "../../src/shared/constants";
-import { expect, test } from "./e2e-fixture";
+import { beginLocalSetup, expect, test } from "./e2e-fixture";
 
 test.beforeEach(async ({ e2e }) => {
   await e2e.reset();
@@ -12,7 +12,7 @@ test("shows a recoverable missing-runtime state without persisting page data", a
   const options = await e2e.extension.openOptions();
   await options.bringToFront();
 
-  await options.getByRole("button", { name: "Start local setup" }).click();
+  await beginLocalSetup(options);
 
   await expect(
     options.getByRole("heading", { name: "Ollama isn’t available" }),
@@ -26,7 +26,7 @@ test("shows a recoverable missing-runtime state without persisting page data", a
         explanationLevel: "everyday",
         preserveEnglishTerms: true,
         includeNearbyContext: false,
-        selectedProvider: "ollama",
+        selectedProvider: "ollama-local",
         selectedModel: RECOMMENDED_MODEL,
         automaticToolbar: false,
         blockedSites: [],
@@ -42,7 +42,7 @@ test("downloads the recommended model after confirmation and finishes with denie
   const options = await e2e.extension.openOptions();
   await options.bringToFront();
 
-  await options.getByRole("button", { name: "Start local setup" }).click();
+  await beginLocalSetup(options);
   await expect
     .poll(() => e2e.ollama.requests.map(({ method, path }) => `${method} ${path}`), {
       timeout: 10_000,
@@ -97,7 +97,7 @@ test("downloads the recommended model after confirmation and finishes with denie
         explanationLevel: "technical",
         preserveEnglishTerms: true,
         includeNearbyContext: false,
-        selectedProvider: "ollama",
+        selectedProvider: "ollama-local",
         selectedModel: RECOMMENDED_MODEL,
         automaticToolbar: false,
         blockedSites: [],
@@ -113,7 +113,7 @@ test("keeps onboarding complete when a usable model only meets the readiness war
   const options = await e2e.extension.openOptions();
   await options.bringToFront();
 
-  await options.getByRole("button", { name: "Start local setup" }).click();
+  await beginLocalSetup(options);
   await expect(
     options.getByRole("heading", { name: "Choose a local model" }),
   ).toBeVisible();

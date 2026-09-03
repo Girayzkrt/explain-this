@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { RECOMMENDED_MODEL } from "../../src/shared/constants";
-import { expect, test } from "./e2e-fixture";
+import { beginLocalSetup, expect, test } from "./e2e-fixture";
 
 /**
  * Temporary capture harness for docs/assets. Runs the packaged extension against the fake
@@ -14,7 +14,7 @@ const completedSettings = {
       explanationLevel: "everyday",
       preserveEnglishTerms: true,
       includeNearbyContext: false,
-      selectedProvider: "ollama",
+      selectedProvider: "ollama-local",
       selectedModel: RECOMMENDED_MODEL,
       automaticToolbar: true,
       blockedSites: [],
@@ -86,7 +86,7 @@ test("captures the reader card, side panel and onboarding", async ({ e2e }) => {
   const options = await e2e.extension.openOptions();
   await options.setViewportSize({ width: 1100, height: 850 });
   await options.bringToFront();
-  await options.getByRole("button", { name: "Start local setup" }).click();
+  await beginLocalSetup(options);
   await expect(
     options.getByRole("heading", { name: "Choose a local model" }),
   ).toBeVisible();

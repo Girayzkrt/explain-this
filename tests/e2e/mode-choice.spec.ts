@@ -17,8 +17,16 @@ const FALSE_LOCAL_CLAIMS: readonly RegExp[] = [
   /explaining locally/i,
   /connecting to local model/i,
   /\blocal model\b/i,
-  /\blocal explanation\b/i,
+  // Was singular-only (`\blocal explanation\b`) — `\b` does not match between `n` and
+  // `s`, so it missed the plural form entirely, including the rail headline "Local
+  // explanations, set up clearly." that the stale-screenshot finding was about.
+  /\blocal explanations?\b/i,
   /\blocal reader\b/i,
+  // Removed welcome copy that was previously guarded only by a unit assertion, not
+  // this e2e net.
+  /understand text locally/i,
+  /local response could not be read/i,
+  /preparing local download/i,
 ];
 
 /**
@@ -32,17 +40,37 @@ const FALSE_LOCAL_CLAIMS: readonly RegExp[] = [
 async function assertNoFalseLocalClaims(page: Page, screen: string): Promise<void> {
   // innerText only excludes ".mode-option" correctly if those elements are actually
   // hidden (a detached clone loses layout and innerText goes empty in Chromium), so
-  // hide them, read, then restore — all inside one synchronous evaluate.
-  const text = await page.evaluate(() => {
+  // hide them, read, then restore — all inside one synchronous evaluate. Read
+  // `textContent` alongside `innerText` (innerText follows rendering/visibility rules
+  // and can miss screen-reader-only text that is still in the DOM), and collect every
+  // `aria-label` attribute explicitly — neither innerText nor textContent exposes an
+  // attribute's value, so an accessible name like `aria-label="Local setup sequence"`
+  // is otherwise invisible to this scan entirely. `textContent` ignores CSS entirely
+  // (unlike innerText), so the display:none trick above does not exclude ".mode-option"
+  // from it — exclude those nodes for textContent by removing them from a detached
+  // clone instead, which loses layout (fine, textContent doesn't need it) without
+  // touching the live, still-rendered page the innerText read depends on.
+  const { innerText, textContent, ariaLabels } = await page.evaluate(() => {
     const cards = [...document.querySelectorAll<HTMLElement>(".mode-option")];
     const previous = cards.map((card) => card.style.display);
     for (const card of cards) card.style.display = "none";
-    const bodyText = document.body.innerText;
+    const innerText = document.body.innerText;
     cards.forEach((card, index) => {
       card.style.display = previous[index] ?? "";
     });
-    return bodyText;
+
+    const clone = document.body.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll(".mode-option").forEach((card) => card.remove());
+    const textContent = clone.textContent ?? "";
+
+    const ariaLabels = [...document.querySelectorAll<HTMLElement>("[aria-label]")]
+      .filter((element) => !element.closest(".mode-option"))
+      .map((element) => element.getAttribute("aria-label") ?? "")
+      .join("\n");
+
+    return { innerText, textContent, ariaLabels };
   });
+  const text = `${innerText}\n${textContent}\n${ariaLabels}`;
   for (const phrase of FALSE_LOCAL_CLAIMS) {
     expect(phrase.test(text), `${screen} must not show ${phrase}`).toBe(false);
   }

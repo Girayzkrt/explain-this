@@ -564,12 +564,14 @@ function DownloadStep({
   const { progress } = state;
   const completed = progress.type === "progress" ? progress.completedBytes : 0;
   const total = progress.type === "progress" ? progress.totalBytes : undefined;
-  const detail =
-    total === undefined
-      ? completed > 0
-        ? `${formatBytes(completed)} downloaded`
-        : "Preparing local download"
-      : `${formatBytes(completed)} of ${formatBytes(total)}`;
+  // A cloud pull moves no weights across the network, so Ollama can report a `total` of
+  // 0 rather than omitting it. Either way there is nothing to compute a percentage of.
+  const indeterminate = total === undefined || total === 0;
+  const detail = indeterminate
+    ? completed > 0
+      ? `${formatBytes(completed)} downloaded`
+      : "Preparing local download"
+    : `${formatBytes(completed)} of ${formatBytes(total)}`;
   const heading =
     selectedProvider === "ollama-local"
       ? "Downloading the local model"
@@ -578,7 +580,7 @@ function DownloadStep({
   return (
     <StepFrame eyebrow="Step 2 of 4" heading={heading}>
       <div role="status">
-        {total === undefined ? (
+        {indeterminate ? (
           <>
             <progress aria-label="Model download" />
             <p className="byte-count">{detail}</p>

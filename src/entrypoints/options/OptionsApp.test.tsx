@@ -915,6 +915,31 @@ describe("options onboarding", () => {
     expect(screen.getByRole("progressbar", { name: /setup progress/i })).toHaveValue(2);
   });
 
+  // A cloud pull moves no weights across the network, so Ollama reports a `total` of 0
+  // rather than omitting it. That must read as "preparing", not as a 0-of-0 progress bar.
+  it("shows preparing rather than a percentage when a pull moves no bytes", async () => {
+    const harness = createHarness();
+    await reachModelChoice(harness);
+    await userEvent.click(
+      screen.getByRole("button", { name: `Download ${RECOMMENDED_MODEL}` }),
+    );
+    act(() => {
+      harness.client.emit({
+        type: "download-progress",
+        progress: {
+          type: "progress",
+          model: RECOMMENDED_MODEL,
+          completedBytes: 0,
+          totalBytes: 0,
+        },
+      });
+    });
+
+    expect(screen.getByText(/preparing/i)).toBeVisible();
+    expect(screen.queryByText(/NaN/)).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
+  });
+
   it("moves keyboard focus to the active step heading after a transition", async () => {
     const harness = createHarness();
 

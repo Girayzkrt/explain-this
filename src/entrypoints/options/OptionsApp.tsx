@@ -64,11 +64,20 @@ export function OptionsApp({ dependencies }: OptionsAppProps) {
   // right beside a "Choose a cloud model" heading and contradict it. The mode isn't
   // known yet at Welcome/choosing-mode, so it stays neutral there; once chosen (every
   // later step), it names the mode actually in effect.
+  //
+  // Reads controller.state.mode, not controller.preferences.selectedProvider: chooseMode
+  // dispatches the "mode" action (updating state.mode) synchronously, but only persists
+  // to preferences after an async storage round trip. A reader who just clicked "Use
+  // Ollama Cloud" would otherwise see this label still say "Local model" for the one
+  // render before that promise settles — reintroducing the exact contradiction this
+  // task removes. state.mode is reducer-owned and carried forward on every other
+  // action, so it never disagrees with `step`; it exists only to answer "which mode is
+  // active right now" for this label and isn't read anywhere commands are built.
   const modeChosen =
     controller.state.step !== "loading" &&
     controller.state.step !== "welcome" &&
     controller.state.step !== "choosing-mode";
-  const isCloudMode = controller.preferences.selectedProvider === "ollama-cloud";
+  const isCloudMode = controller.state.mode === "ollama-cloud";
   const modelMilestoneLabel = modeChosen
     ? isCloudMode
       ? "Cloud model"
@@ -157,7 +166,7 @@ function ActiveStep({
             type="button"
             onClick={controller.begin}
           >
-            Start local setup
+            Start setup
           </button>
         </StepFrame>
       );

@@ -100,7 +100,9 @@ describe("choosing how the model runs", () => {
   });
 
   test("keeps the mode choice inside the second milestone", () => {
-    expect(onboardingStepNumber({ step: "choosing-mode" })).toBe(2);
+    expect(onboardingStepNumber({ step: "choosing-mode", mode: "ollama-local" })).toBe(
+      2,
+    );
   });
 
   test("returns from model choice to the mode choice", async () => {

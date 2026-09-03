@@ -130,9 +130,7 @@ function createHarness(overrides: Partial<OptionsAppDependencies> = {}) {
 }
 
 async function startRuntimeCheck(harness: ReturnType<typeof createHarness>) {
-  await userEvent.click(
-    await screen.findByRole("button", { name: /start local setup/i }),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: /start setup/i }));
   await userEvent.click(
     await screen.findByRole("button", { name: /use this computer/i }),
   );
@@ -165,9 +163,7 @@ async function reachCloudModelChoice(
   harness: ReturnType<typeof createHarness>,
   models: Extract<OnboardingEvent, { type: "models-result" }>["models"] = [],
 ) {
-  await userEvent.click(
-    await screen.findByRole("button", { name: /start local setup/i }),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: /start setup/i }));
   await userEvent.click(
     await screen.findByRole("button", { name: /use ollama cloud/i }),
   );
@@ -275,6 +271,53 @@ describe("options onboarding", () => {
     expect(
       screen.getAllByRole("listitem").map((item) => item.textContent),
     ).not.toContain("2Local model");
+  });
+
+  // Regression test for the race the milestone-label fix could reintroduce: chooseMode
+  // dispatches the "mode" action (updating onboarding state) synchronously, but only
+  // persists selectedProvider to settings after an awaited storage round trip. If the
+  // label were still sourced from `preferences.selectedProvider` instead of
+  // `state.mode`, it would read "Local model" for as long as that round trip is
+  // pending. `userEvent.click` cannot observe this on its own — it awaits through
+  // `act()` until every promise in the click settles, well past the persisted write —
+  // so this test holds `settingsRepository.update()` open with an unresolved promise
+  // and asserts the render that happens *before* resolving it.
+  it("labels the model milestone from the mode choice itself, before the settings write resolves", async () => {
+    const settings = storedSettings();
+    const persistedUpdate = deferred<StoredSettings>();
+    createHarness({
+      settingsRepository: {
+        async get() {
+          return structuredClone(settings);
+        },
+        update() {
+          // Never resolves during this test — the point is to inspect the render
+          // while this promise is still pending.
+          return persistedUpdate.promise;
+        },
+        async markOnboardingComplete() {
+          return structuredClone(settings);
+        },
+      },
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: /start setup/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /use ollama cloud/i }),
+    );
+
+    // The command hasn't been sent yet either — chooseMode sends "check-runtime" only
+    // after the settings write resolves — which independently confirms this assertion
+    // really does land inside the pending window, not after it.
+    expect(screen.getByRole("heading", { name: /checking ollama/i })).toBeVisible();
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toContain(
+      "2Cloud model",
+    );
+    expect(document.body.textContent).not.toMatch(/2local model/i);
+
+    await act(async () => {
+      persistedUpdate.resolve(structuredClone(settings));
+    });
   });
 
   // A free-text language box meant guessing at spellings the model may not honour.
@@ -561,9 +604,7 @@ describe("options onboarding", () => {
 
   it("says plainly what each mode does with the reader's text", async () => {
     createHarness();
-    await userEvent.click(
-      await screen.findByRole("button", { name: /start local setup/i }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: /start setup/i }));
 
     expect(screen.getByText(/does not leave your machine/i)).toBeVisible();
     expect(screen.getByText(/sent to Ollama's servers/i)).toBeVisible();
@@ -573,9 +614,7 @@ describe("options onboarding", () => {
 
   it("offers the on-this-computer mode first", async () => {
     createHarness();
-    await userEvent.click(
-      await screen.findByRole("button", { name: /start local setup/i }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: /start setup/i }));
 
     const headings = screen.getAllByRole("heading", { level: 3 });
     expect(headings[0]).toHaveTextContent(/On this computer/i);
@@ -586,9 +625,7 @@ describe("options onboarding", () => {
   // scale even though the cards themselves are styled identically.
   it("gives the local and cloud buttons identical styling", async () => {
     createHarness();
-    await userEvent.click(
-      await screen.findByRole("button", { name: /start local setup/i }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: /start setup/i }));
 
     const localButton = screen.getByRole("button", { name: /use this computer/i });
     const cloudButton = screen.getByRole("button", { name: /use ollama cloud/i });
@@ -597,9 +634,7 @@ describe("options onboarding", () => {
 
   it("shows both cloud sign-in commands and retries list-models with the mode intact", async () => {
     const harness = createHarness();
-    await userEvent.click(
-      await screen.findByRole("button", { name: /start local setup/i }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: /start setup/i }));
     await userEvent.click(
       await screen.findByRole("button", { name: /use ollama cloud/i }),
     );
@@ -768,6 +803,12 @@ describe("options onboarding", () => {
     expect(document.body.textContent).not.toMatch(/goes only to 127\.0\.0\.1/i);
     expect(document.body.textContent).not.toMatch(/no cloud account is required/i);
     expect(document.body.textContent).not.toMatch(/stays on (this|your) computer/i);
+    // The welcome screen's own call-to-action button used to read "Start local
+    // setup" — one unconditional "local" on the one screen that precedes the mode
+    // choice.
+    expect(screen.getByRole("button", { name: /start setup/i })).not.toHaveTextContent(
+      /local/i,
+    );
   });
 
   // The controller ruling behind this task: with cloud mode active, no rendered

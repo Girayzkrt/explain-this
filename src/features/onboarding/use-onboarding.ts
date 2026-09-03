@@ -21,7 +21,16 @@ export interface OnboardingClientConnection {
   disconnect(): void;
 }
 
-export type OnboardingState =
+// `mode` is threaded through every variant by the reducer alone (see reduceOnboarding):
+// set once from storage on hydration, updated once when the reader actually chooses a
+// mode, carried forward unchanged on every other action. It exists so the UI has a
+// value that changes on the same synchronous tick as `step` does — unlike
+// `preferences.selectedProvider`, which only updates after an async storage round
+// trip and briefly lags a fresh mode choice. It is a read model for that one property
+// (which mode is active *right now*, for rendering), not a second copy of the
+// persisted settings: nothing here builds commands or persists from `mode`, only
+// `preferences` does that, exactly as before.
+type OnboardingStepState =
   | { step: "loading" }
   | { step: "welcome" }
   | { step: "choosing-mode" }
@@ -47,8 +56,10 @@ export type OnboardingState =
   | { step: "settings" }
   | { step: "failed"; error: PublicErrorShape; interruptedStep: number };
 
+export type OnboardingState = OnboardingStepState & { mode: SelectedProvider };
+
 type OnboardingAction =
-  | { type: "hydrated"; completed: boolean }
+  | { type: "hydrated"; completed: boolean; mode: SelectedProvider }
   | { type: "begin" }
   | { type: "check-runtime" }
   | { type: "mode"; mode: SelectedProvider }
@@ -107,21 +118,28 @@ function reduceOnboarding(
 ): OnboardingState {
   switch (action.type) {
     case "hydrated":
-      return { step: action.completed ? "settings" : "welcome" };
+      // The one place `mode` is seeded from storage, for a returning reader who lands
+      // straight on "settings" without ever dispatching "mode" this session.
+      return {
+        step: action.completed ? "settings" : "welcome",
+        mode: action.mode,
+      };
     case "begin":
-      return { step: "choosing-mode" };
+      return { step: "choosing-mode", mode: state.mode };
     case "check-runtime":
-      return { step: "checking-runtime" };
+      return { step: "checking-runtime", mode: state.mode };
     case "mode":
-      return { step: "checking-runtime" };
+      // The one place `mode` changes after hydration: synchronously, in the same
+      // dispatch that advances `step`, so the two are never one render apart.
+      return { step: "checking-runtime", mode: action.mode };
     case "back":
       switch (state.step) {
         case "choosing-model":
-          return { step: "choosing-mode" };
+          return { step: "choosing-mode", mode: state.mode };
         case "preferences":
-          return { step: "choosing-model", models: action.models };
+          return { step: "choosing-model", models: action.models, mode: state.mode };
         case "complete":
-          return { step: "preferences", model: action.model };
+          return { step: "preferences", model: action.model, mode: state.mode };
         default:
           // Downloads and the readiness test own their own cancellation.
           return state;
@@ -131,40 +149,55 @@ function reduceOnboarding(
         step: "runtime-missing",
         error: action.error,
         showOriginGuidance: action.showOriginGuidance,
+        mode: state.mode,
       };
     case "show-origin-guidance":
       return state.step === "runtime-missing"
-        ? { step: "origin-guidance", error: state.error }
+        ? { step: "origin-guidance", error: state.error, mode: state.mode }
         : state;
     case "origin-guidance":
-      return { step: "origin-guidance", error: action.error };
+      return { step: "origin-guidance", error: action.error, mode: state.mode };
     case "cloud-signin-guidance":
-      return { step: "cloud-signin-guidance", error: action.error };
+      return {
+        step: "cloud-signin-guidance",
+        error: action.error,
+        mode: state.mode,
+      };
     case "models":
-      return { step: "choosing-model", models: action.models };
+      return { step: "choosing-model", models: action.models, mode: state.mode };
     case "download":
-      return { step: "downloading", progress: action.progress };
+      return { step: "downloading", progress: action.progress, mode: state.mode };
     case "preferences":
-      return { step: "preferences", model: action.model };
+      return { step: "preferences", model: action.model, mode: state.mode };
     case "context":
-      return { step: "context", preferences: action.preferences };
+      return {
+        step: "context",
+        preferences: action.preferences,
+        mode: state.mode,
+      };
     case "permission":
-      return { step: "permission", preferences: action.preferences };
+      return {
+        step: "permission",
+        preferences: action.preferences,
+        mode: state.mode,
+      };
     case "readiness":
       return {
         step: "readiness",
         preferences: action.preferences,
         permissionDenied: action.permissionDenied,
+        mode: state.mode,
       };
     case "complete":
-      return { step: "complete", result: action.result };
+      return { step: "complete", result: action.result, mode: state.mode };
     case "saved":
-      return state.step === "complete" ? { step: "settings" } : state;
+      return state.step === "complete" ? { step: "settings", mode: state.mode } : state;
     case "failed":
       return {
         step: "failed",
         error: action.error,
         interruptedStep: onboardingStepNumber(state),
+        mode: state.mode,
       };
   }
 }
@@ -216,7 +249,10 @@ export function useOnboarding({
   settingsRepository,
   getUiLanguage,
 }: UseOnboardingDependencies): OnboardingController {
-  const [state, dispatch] = useReducer(reduceOnboarding, { step: "loading" });
+  const [state, dispatch] = useReducer(reduceOnboarding, {
+    step: "loading",
+    mode: "ollama-local",
+  });
   const [preferences, setPreferences] = useState(() =>
     initialPreferences(getUiLanguage),
   );
@@ -236,7 +272,11 @@ export function useOnboarding({
       if (!mounted) return;
       preferencesRef.current = stored.preferences;
       setPreferences(stored.preferences);
-      dispatch({ type: "hydrated", completed: stored.onboardingVersion === 1 });
+      dispatch({
+        type: "hydrated",
+        completed: stored.onboardingVersion === 1,
+        mode: stored.preferences.selectedProvider,
+      });
     });
     return () => {
       mounted = false;

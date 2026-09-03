@@ -76,6 +76,56 @@ These checks cover Chrome-owned UI and browser policies that are not reliably ex
 - [ ] Confirm diagnostics and local storage contain settings/status only, not source text or model output.
 - [ ] Clear the temporary profile after the run and record any unexpected browser permission or privacy behavior in the notes below.
 
+## Mode selection and Ollama Cloud sign-in
+
+Playwright covers the mode screen, cloud model choice, and disclosure copy against the
+fake Ollama server (`tests/e2e/mode-choice.spec.ts`), but nothing in this repository
+exercises a real Ollama Cloud account. These checks need one.
+
+- [ ] On the mode screen ("Choose how it runs"), confirm **On this computer** and
+      **Ollama Cloud** are given visually equal weight — same size, same styling,
+      neither presented as the "better" or highlighted choice.
+- [ ] Choose **Ollama Cloud** against a real Ollama installation with no signed-in
+      cloud session. Confirm the sign-in guidance screen appears with the exact
+      commands (`ollama signin`, `ollama pull <model>`).
+- [ ] Run those commands for real, in a real terminal, against real Ollama. Click
+      **Check again** and confirm it proceeds to cloud model choice once signed in —
+      not before.
+- [ ] Confirm a real signed-in cloud model appears in the model list, selectable, and
+      that a real local model appears disabled with a "runs on this computer" reason.
+- [ ] Send a real explanation request in Ollama Cloud mode. Confirm the reader card
+      shows the cloud-mode copy ("Cloud reader" kicker in the side panel, "Explaining
+      via Ollama’s cloud…" status, `aria-label="Cloud explanation"`) and never any
+      local-mode copy.
+- [ ] Switch mode in Settings from **On this computer** to **Ollama Cloud** and back.
+      At each point, confirm the mode table and privacy-promise language on the
+      options page (and, separately, the README and `docs/privacy.md` shipped with
+      this build) describe the mode that is actually active — not the other one, and
+      not both.
+- [ ] Stop the local Ollama daemon while Ollama Cloud mode is selected. Confirm the
+      error is "Model unavailable" (`OLLAMA_UNREACHABLE`), not a cloud-specific
+      message — cloud mode still depends on the local daemon as its gateway.
+- [ ] Let a real Ollama Cloud session expire or sign out mid-session, then send a
+      request. Confirm it surfaces "Sign in to Ollama Cloud"
+      (`OLLAMA_SIGNIN_REQUIRED`) rather than a generic retry-forever failure.
+
+## Open questions needing a signed-in Ollama Cloud installation
+
+These are the design's own "to verify during implementation" items
+(`docs/superpowers/specs/2026-09-02-hybrid-provider-design.md`). None of them can be
+answered against the fake Ollama server; record the actual observation here once a
+signed-in installation is available.
+
+- [ ] Whether a cloud model appears in a real `/api/tags` response at all, and whether
+      its `size` field is `0`, absent, or something else. Record the raw JSON.
+- [ ] Ollama's actual unauthenticated response shape for a cloud request (status code,
+      body) once a cloud session has genuinely expired, so `OLLAMA_SIGNIN_REQUIRED`'s
+      mapping in `src/providers/ollama/errors.ts` can be narrowed from its current
+      defensive form if the observed shape differs from 401.
+- [ ] Cloud first-token latency on a real signed-in installation, to replace the
+      provisional 20 000 ms budget in `firstTokenBudgetMs`
+      (`src/shared/constants.ts`) with a measured figure.
+
 ## Notes / deviations
 
 ---

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { RECOMMENDED_MODEL } from "../../src/shared/constants";
+import { RECOMMENDED_CLOUD_MODEL, RECOMMENDED_MODEL } from "../../src/shared/constants";
 import { expect, test } from "./e2e-fixture";
 
 const completedSettings = {
@@ -14,6 +14,17 @@ const completedSettings = {
       selectedModel: RECOMMENDED_MODEL,
       automaticToolbar: true,
       blockedSites: [],
+    },
+  },
+};
+
+const completedCloudSettings = {
+  settings: {
+    onboardingVersion: 1,
+    preferences: {
+      ...completedSettings.settings.preferences,
+      selectedProvider: "ollama-cloud",
+      selectedModel: RECOMMENDED_CLOUD_MODEL,
     },
   },
 };
@@ -258,4 +269,36 @@ test("keeps the surface isolated above hostile CSS and inside the viewport", asy
   });
   expect(narrowBounds.left).toBeGreaterThanOrEqual(8);
   expect(narrowBounds.right).toBeLessThanOrEqual(392);
+});
+
+// Every other test in this file seeds "ollama-local" and never exercises a request
+// with session.provider === "ollama-cloud", so the cloud-mode copy ("Cloud reader",
+// "Explaining via Ollama's cloud…", aria-label "Cloud explanation") never rendered on
+// a real reader surface — only in component-level unit tests. This closes that gap.
+test("runs a reading request in Ollama Cloud mode and shows cloud-mode copy throughout", async ({
+  e2e,
+}) => {
+  // beforeEach seeds local-mode settings; overwrite the "settings" key with the
+  // cloud-mode variant before opening the fixture page.
+  await e2e.extension.writeTrustedStorage(completedCloudSettings);
+  const page = await e2e.extension.openFixture(e2e.fixturePages.url("normal.html"));
+
+  await selectNestedPassage(page);
+  await e2e.extension.invokePackagedReader(page);
+
+  const explanation = page.getByRole("article", { name: "Cloud explanation" });
+  await expect(explanation).toBeVisible();
+  await expect(explanation.getByRole("status")).toContainText(/Ollama.s cloud/i);
+  await expect(explanation.getByRole("status")).not.toContainText(
+    /locally|local model/i,
+  );
+
+  e2e.ollama.releaseChat();
+  await expect(explanation).toContainText("Local answer.");
+  expect(actionMarker(e2e.ollama.requests.at(-1)?.body)).toBe("explain");
+
+  await page.getByRole("button", { name: "Open in side panel" }).click();
+  const panel = await e2e.extension.openSidePanel(page);
+  await expect(panel.getByText("Cloud reader")).toBeVisible();
+  await expect(panel.getByText("Local reader")).toHaveCount(0);
 });

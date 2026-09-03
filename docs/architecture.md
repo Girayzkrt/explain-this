@@ -24,6 +24,7 @@ handle.
 ```text
 selection -> reader surface -> named port -> background
                                                |- validate and enforce budgets
+                                               |- checkModeConsistency(mode, model.origin)
                                                |- build prompt (system + user)
                                                '- Ollama /api/chat (loopback, streamed)
                                                           |
@@ -32,6 +33,13 @@ reader surface <- delta / completed / failed <- request coordinator
 
 Only one generation is active at a time, enforced by a concurrency gate. Starting a
 request in another tab cancels the first and tells the first surface it was cancelled.
+
+`checkModeConsistency` is the gate that keeps the interface's mode claim true: it
+compares the reader's chosen mode against the selected model's derived `origin` and
+refuses the request (`CLOUD_MODEL_IN_LOCAL_MODE`) only in the direction that would
+otherwise send text somewhere the interface promised it wouldn't. The mirror case — a
+local model selected in cloud mode — is a quality mismatch, not a safety one, so it
+never blocks; see `src/core/requests/mode-consistency.ts`.
 
 ## Provider interface
 
@@ -45,12 +53,32 @@ construction_ rather than by policy.
 `failed`. Failures map to a closed set of public error codes; raw provider messages never
 reach the UI.
 
+`listModels` returns each model's `ModelOrigin` — `"local"`, `"cloud"`, or `"unknown"` —
+derived, never stored, from two independent `/api/tags` signals: the `-cloud` name
+suffix and a `size` of zero or absent. Neither signal is contractual, which is why
+`"unknown"` exists, and every consumer treats `"unknown"` exactly like `"cloud"`:
+uncertainty always resolves toward the safer refusal, never toward a false promise of
+locality. `selectedProvider` (the reader's chosen mode) and a model's `origin` are
+deliberately different concepts — the mode is what the interface claims, the origin is
+only used to decide which models are offered — because if the origin heuristic is ever
+wrong, the product should show an unnecessary warning rather than tell a lie.
+
 ### Timeouts
 
 Ollama does not flush response headers until the model produces its first token, so on
 `/api/chat` the wait for headers _is_ first-token latency, not connection latency. The
 connection budget therefore applies to `/api/tags` and `/api/show`, which answer
 immediately, while generation uses the first-token budget.
+
+The first-token budget itself is mode-derived (`firstTokenBudgetMs` in
+`src/shared/constants.ts`), not a single fixed value: local inference pays for model
+loading before the first token (a cold `gemma3:4b` was measured at 30656 ms), while
+cloud inference loads nothing but pays for network latency and queueing instead. One
+budget cannot fit both, so `ChatRequest.firstTokenTimeoutMs` is set per request from the
+mode actually running, threaded through both the reader path
+(`request-coordinator.ts`) and onboarding's readiness check (`readiness.ts`), which
+would otherwise use the provider's own shorter default against a model that was just
+downloaded and is therefore cold.
 
 Getting this wrong is not cosmetic: it reports `CONNECTION_TIMEOUT`, which onboarding maps
 to "Ollama is not running" — a misleading message for a model that is merely slow. On a

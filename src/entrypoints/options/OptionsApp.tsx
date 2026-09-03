@@ -183,7 +183,10 @@ function ActiveStep({
             <span className="status-pulse" aria-hidden="true" />
             Looking for Ollama at <code>127.0.0.1:11434</code>…
           </div>
-          <p>This check reads the local model list. It does not send page text.</p>
+          <p>
+            This check reads Ollama&apos;s installed model list. It does not send page
+            text.
+          </p>
         </StepFrame>
       );
     case "runtime-missing":

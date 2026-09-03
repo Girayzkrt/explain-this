@@ -111,9 +111,8 @@ exercises a real Ollama Cloud account. These checks need one.
 
 ## Open questions needing a signed-in Ollama Cloud installation
 
-These are the design's own "to verify during implementation" items
-(`docs/superpowers/specs/2026-09-02-hybrid-provider-design.md`). None of them can be
-answered against the fake Ollama server; record the actual observation here once a
+These are the hybrid-provider design's own "to verify during implementation" items.
+None of them can be answered against the fake Ollama server; record the actual observation here once a
 signed-in installation is available.
 
 - [ ] Whether a cloud model appears in a real `/api/tags` response at all, and whether

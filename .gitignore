@@ -155,3 +155,6 @@ docs/planning/
 # Isolated implementation worktrees and subagent workflow records
 .worktrees/
 .superpowers/
+
+# Agent process artifacts: plans, specs, ledgers and review diffs stay local.
+docs/superpowers/

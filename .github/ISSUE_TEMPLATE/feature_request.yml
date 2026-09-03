@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest something that helps readers understand what they are reading
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain This does one job: explaining a passage you selected, in place, using a
+        model on your own machine. Requests are judged against that job, so please say how
+        the idea serves it.
+
+        Two things are settled and not open to proposal: **no cloud inference**, and **no
+        page content leaving the device**.
+  - type: textarea
+    id: reading-problem
+    attributes:
+      label: What reading problem does this solve?
+      description: Describe a moment where you were reading something and got stuck.
+      placeholder: "When I read legal text I understand the words but not which obligation is mine..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should the extension do?
+    validations:
+      required: true
+  - type: textarea
+    id: current-workaround
+    attributes:
+      label: What do you do today instead?
+      description: How you work around it now, and why that is unsatisfying.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+    validations:
+      required: false
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This works with a local model and requires no cloud service.
+          required: true
+        - label: This does not require sending page content off the device.
+          required: true

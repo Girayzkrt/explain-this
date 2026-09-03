@@ -1,0 +1,694 @@
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { checkModeConsistency } from "../../core/requests/mode-consistency";
+import type { OnboardingClient } from "../../platform/messaging/onboarding-client";
+import type { SettingsRepository } from "../../platform/storage/settings-repository";
+import type {
+  ModelDownloadEvent,
+  ModelInfo,
+  PublicErrorShape,
+} from "../../providers/provider";
+import { resolveLanguageName } from "../settings/languages";
+import {
+  createDefaultPreferences,
+  type ReadingPreferences,
+  type SelectedProvider,
+} from "../settings/settings";
+import type { OnboardingCommand, OnboardingEvent, ReadinessResult } from "./contracts";
+
+export interface OnboardingClientConnection {
+  send(command: OnboardingCommand): void;
+  subscribe(listener: (event: OnboardingEvent) => void): () => void;
+  subscribeDisconnect(listener: () => void): () => void;
+  disconnect(): void;
+}
+
+// `mode` is threaded through every variant by the reducer alone (see reduceOnboarding):
+// set once from storage on hydration, updated once when the reader actually chooses a
+// mode, carried forward unchanged on every other action. It exists so the UI has a
+// value that changes on the same synchronous tick as `step` does — unlike
+// `preferences.selectedProvider`, which only updates after an async storage round
+// trip and briefly lags a fresh mode choice. It is a read model for that one property
+// (which mode is active *right now*, for rendering), not a second copy of the
+// persisted settings: nothing here builds commands or persists from `mode`, only
+// `preferences` does that, exactly as before.
+type OnboardingStepState =
+  | { step: "loading" }
+  | { step: "welcome" }
+  | { step: "choosing-mode" }
+  | { step: "checking-runtime" }
+  | {
+      step: "runtime-missing";
+      error: PublicErrorShape;
+      showOriginGuidance: boolean;
+    }
+  | { step: "origin-guidance"; error: PublicErrorShape }
+  | { step: "cloud-signin-guidance"; error: PublicErrorShape }
+  | { step: "choosing-model"; models: ModelInfo[] }
+  | { step: "downloading"; progress: ModelDownloadEvent }
+  | { step: "preferences"; model: string }
+  | { step: "context"; preferences: ReadingPreferences }
+  | { step: "permission"; preferences: ReadingPreferences }
+  | {
+      step: "readiness";
+      preferences: ReadingPreferences;
+      permissionDenied: boolean;
+    }
+  | { step: "complete"; result: ReadinessResult }
+  | { step: "settings" }
+  | { step: "failed"; error: PublicErrorShape; interruptedStep: number };
+
+export type OnboardingState = OnboardingStepState & { mode: SelectedProvider };
+
+type OnboardingAction =
+  | { type: "hydrated"; completed: boolean; mode: SelectedProvider }
+  | { type: "begin" }
+  | { type: "check-runtime" }
+  | { type: "mode"; mode: SelectedProvider }
+  | { type: "settings-mode"; mode: SelectedProvider }
+  | {
+      type: "runtime-missing";
+      error: PublicErrorShape;
+      showOriginGuidance: boolean;
+    }
+  | { type: "show-origin-guidance" }
+  | { type: "origin-guidance"; error: PublicErrorShape }
+  | { type: "cloud-signin-guidance"; error: PublicErrorShape }
+  | { type: "models"; models: ModelInfo[] }
+  | { type: "download"; progress: ModelDownloadEvent }
+  | { type: "preferences"; model: string }
+  | { type: "context"; preferences: ReadingPreferences }
+  | { type: "permission"; preferences: ReadingPreferences }
+  | {
+      type: "readiness";
+      preferences: ReadingPreferences;
+      permissionDenied: boolean;
+    }
+  | { type: "complete"; result: ReadinessResult }
+  | { type: "back"; models: ModelInfo[]; model: string }
+  | { type: "saved" }
+  | { type: "failed"; error: PublicErrorShape };
+
+export function onboardingStepNumber(state: OnboardingState): number {
+  switch (state.step) {
+    case "loading":
+    case "welcome":
+      return 1;
+    case "choosing-mode":
+    case "checking-runtime":
+    case "runtime-missing":
+    case "origin-guidance":
+    case "cloud-signin-guidance":
+    case "choosing-model":
+    case "downloading":
+      return 2;
+    case "preferences":
+    case "context":
+    case "permission":
+      return 3;
+    case "readiness":
+    case "complete":
+    case "settings":
+      return 4;
+    case "failed":
+      return state.interruptedStep;
+  }
+}
+
+function reduceOnboarding(
+  state: OnboardingState,
+  action: OnboardingAction,
+): OnboardingState {
+  switch (action.type) {
+    case "hydrated":
+      // The one place `mode` is seeded from storage, for a returning reader who lands
+      // straight on "settings" without ever dispatching "mode" this session.
+      return {
+        step: action.completed ? "settings" : "welcome",
+        mode: action.mode,
+      };
+    case "begin":
+      return { step: "choosing-mode", mode: state.mode };
+    case "check-runtime":
+      return { step: "checking-runtime", mode: state.mode };
+    case "mode":
+      // The one place `mode` changes after hydration: synchronously, in the same
+      // dispatch that advances `step`, so the two are never one render apart.
+      return { step: "checking-runtime", mode: action.mode };
+    case "settings-mode":
+      // Settings' own mode change: unlike "mode", it must not advance `step` — the
+      // reader stays on Settings unless revalidation later finds the current model
+      // no longer fits. Still dispatched synchronously so `state.mode` (read by the
+      // rail milestone label) never lags a render behind, the same race "mode" was
+      // built to avoid. Also accepted from "failed": that is `retry` re-running a
+      // changeMode save whose previous attempt landed here on a MODE_NOT_SAVED
+      // failure, and retrying must return the reader to Settings, not leave them
+      // stuck on the failure screen for a mode change that is back in flight.
+      return state.step === "settings" || state.step === "failed"
+        ? { step: "settings", mode: action.mode }
+        : state;
+    case "back":
+      switch (state.step) {
+        case "choosing-model":
+          return { step: "choosing-mode", mode: state.mode };
+        case "preferences":
+          return { step: "choosing-model", models: action.models, mode: state.mode };
+        case "complete":
+          return { step: "preferences", model: action.model, mode: state.mode };
+        default:
+          // Downloads and the readiness test own their own cancellation.
+          return state;
+      }
+    case "runtime-missing":
+      return {
+        step: "runtime-missing",
+        error: action.error,
+        showOriginGuidance: action.showOriginGuidance,
+        mode: state.mode,
+      };
+    case "show-origin-guidance":
+      return state.step === "runtime-missing"
+        ? { step: "origin-guidance", error: state.error, mode: state.mode }
+        : state;
+    case "origin-guidance":
+      return { step: "origin-guidance", error: action.error, mode: state.mode };
+    case "cloud-signin-guidance":
+      return {
+        step: "cloud-signin-guidance",
+        error: action.error,
+        mode: state.mode,
+      };
+    case "models":
+      return { step: "choosing-model", models: action.models, mode: state.mode };
+    case "download":
+      return { step: "downloading", progress: action.progress, mode: state.mode };
+    case "preferences":
+      return { step: "preferences", model: action.model, mode: state.mode };
+    case "context":
+      return {
+        step: "context",
+        preferences: action.preferences,
+        mode: state.mode,
+      };
+    case "permission":
+      return {
+        step: "permission",
+        preferences: action.preferences,
+        mode: state.mode,
+      };
+    case "readiness":
+      return {
+        step: "readiness",
+        preferences: action.preferences,
+        permissionDenied: action.permissionDenied,
+        mode: state.mode,
+      };
+    case "complete":
+      return { step: "complete", result: action.result, mode: state.mode };
+    case "saved":
+      return state.step === "complete" ? { step: "settings", mode: state.mode } : state;
+    case "failed":
+      return {
+        step: "failed",
+        error: action.error,
+        interruptedStep: onboardingStepNumber(state),
+        mode: state.mode,
+      };
+  }
+}
+
+function recoverableError(
+  code: PublicErrorShape["code"],
+  message: string,
+): PublicErrorShape {
+  return { code, message, recoverable: true };
+}
+
+export interface OnboardingController {
+  state: OnboardingState;
+  preferences: ReadingPreferences;
+  showOriginGuidance(): void;
+  begin(): void;
+  checkRuntime(): void;
+  chooseMode(mode: SelectedProvider): void;
+  changeMode(mode: SelectedProvider): void;
+  goBack(): void;
+  downloadModel(model: string): void;
+  useInstalledModel(model: string): void;
+  cancelDownload(): void;
+  savePreferences(preferences: ReadingPreferences): void;
+  saveContext(includeNearbyContext: boolean): void;
+  resolvePermission(granted: boolean, denied?: boolean): void;
+  runReadiness(preferences?: ReadingPreferences, permissionDenied?: boolean): void;
+  finish(): void;
+  updateSettings(patch: Partial<ReadingPreferences>): Promise<void>;
+  retry(): void;
+}
+
+export interface UseOnboardingDependencies {
+  createClient(): OnboardingClientConnection | OnboardingClient;
+  settingsRepository: SettingsRepository;
+  getUiLanguage(): string;
+}
+
+function initialPreferences(getUiLanguage: () => string): ReadingPreferences {
+  const preferences = createDefaultPreferences();
+  const uiLanguage = getUiLanguage().trim();
+  if (uiLanguage.length >= 2 && uiLanguage.length <= 64) {
+    preferences.preferredLanguage = resolveLanguageName(uiLanguage);
+  }
+  return preferences;
+}
+
+export function useOnboarding({
+  createClient,
+  settingsRepository,
+  getUiLanguage,
+}: UseOnboardingDependencies): OnboardingController {
+  const [state, dispatch] = useReducer(reduceOnboarding, {
+    step: "loading",
+    mode: "ollama-local",
+  });
+  const [preferences, setPreferences] = useState(() =>
+    initialPreferences(getUiLanguage),
+  );
+  const preferencesRef = useRef(preferences);
+  const lastModelsRef = useRef<ModelInfo[]>([]);
+  const clientRef = useRef<OnboardingClientConnection | undefined>(undefined);
+  const resumableCommandRef = useRef<OnboardingCommand | undefined>(undefined);
+  const retryCommandRef = useRef<OnboardingCommand | undefined>(undefined);
+  // Set while a chooseMode/changeMode storage write is in flight or has just failed, so
+  // `retry` can re-attempt the same save instead of falling through to the generic
+  // command-replay below (a MODE_NOT_SAVED failure isn't a wire command, so there is
+  // nothing in `retryCommandRef` for it). Cleared the moment the write succeeds.
+  const pendingModeSaveRef = useRef<
+    { mode: SelectedProvider; origin: "choose" | "change" } | undefined
+  >(undefined);
+  // Set only while a Settings mode change is waiting on its re-listed models, so the
+  // shared "models-result"/"onboarding-failed" handling below can tell that revalidation
+  // apart from the ordinary setup flow's list-models call, which always advances to
+  // "choosing-model" regardless of the outcome. This is the identity a response gets
+  // correlated against: `send` (below) clears it the moment any command other than this
+  // exact revalidation's own list-models goes out, because OnboardingService keeps only
+  // one active operation per port and silently drops a superseded command's response —
+  // so once something else has been sent, a later surviving response cannot be trusted
+  // as an answer to this particular revalidation. A cleared ref makes the "models-result"
+  // handler fall through to its ordinary, always-dispatch behavior, which is what
+  // guarantees a superseded revalidation still lands the reader somewhere with a way
+  // forward (Choose a model) instead of leaving them stranded.
+  const revalidatingModeRef = useRef<SelectedProvider | undefined>(undefined);
+  const [connectionGeneration, reconnect] = useReducer(
+    (generation: number) => generation + 1,
+    0,
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    void settingsRepository.get().then((stored) => {
+      if (!mounted) return;
+      preferencesRef.current = stored.preferences;
+      setPreferences(stored.preferences);
+      dispatch({
+        type: "hydrated",
+        completed: stored.onboardingVersion === 1,
+        mode: stored.preferences.selectedProvider,
+      });
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [settingsRepository]);
+
+  const send = useCallback(
+    (
+      command: OnboardingCommand,
+      options: { resumable?: boolean; retryable?: boolean } = {},
+    ): void => {
+      const { resumable = true, retryable = true } = options;
+      if (resumable) resumableCommandRef.current = command;
+      if (retryable) retryCommandRef.current = command;
+      // Any command other than a pending revalidation's own matching list-models
+      // supersedes that revalidation on the port (see the ref's own comment above) —
+      // including a second, later Settings mode change's list-models for a different
+      // mode. Clear it here, at the one place every command actually goes out, so the
+      // eventual "models-result" handler never misattributes a stray response to a
+      // revalidation intent that something else has already overtaken.
+      if (
+        revalidatingModeRef.current !== undefined &&
+        !(
+          command.type === "list-models" && command.mode === revalidatingModeRef.current
+        )
+      ) {
+        revalidatingModeRef.current = undefined;
+      }
+      clientRef.current?.send(command);
+    },
+    [],
+  );
+
+  const setChosenPreferences = useCallback((next: ReadingPreferences): void => {
+    preferencesRef.current = next;
+    setPreferences(next);
+  }, []);
+
+  const handleEvent = useCallback(
+    (event: OnboardingEvent): void => {
+      switch (event.type) {
+        case "runtime-result":
+          if (event.health.available) {
+            send({
+              type: "list-models",
+              mode: preferencesRef.current.selectedProvider,
+            });
+            return;
+          }
+          resumableCommandRef.current = undefined;
+          if (event.health.status === "origin-blocked") {
+            dispatch({
+              type: "origin-guidance",
+              error:
+                event.health.error ??
+                recoverableError(
+                  "OLLAMA_ORIGIN_BLOCKED",
+                  event.health.message ?? "Ollama rejected this extension origin.",
+                ),
+            });
+            return;
+          }
+          dispatch({
+            type: "runtime-missing",
+            error:
+              event.health.error ??
+              recoverableError(
+                "OLLAMA_UNREACHABLE",
+                event.health.message ?? "Ollama is not available.",
+              ),
+            showOriginGuidance: event.health.secondaryAction === "show-origin-guidance",
+          });
+          return;
+        case "models-result": {
+          lastModelsRef.current = event.models;
+          resumableCommandRef.current = undefined;
+          const revalidatingMode = revalidatingModeRef.current;
+          if (revalidatingMode !== undefined) {
+            revalidatingModeRef.current = undefined;
+            // The currently selected model, not `preferencesRef.current.selectedProvider`
+            // — that only updates after updateSettings' storage round trip and would
+            // reintroduce the exact race the milestone label was already fixed for.
+            const selected = event.models.find(
+              (model) => model.id === preferencesRef.current.selectedModel,
+            );
+            const origin = selected?.origin ?? "unknown";
+            // Any non-"ok" result forces a re-pick, not only the one that blocks a
+            // request. ModelStep already disables and annotates every non-"ok" option in
+            // the picker, so a local model left selected in cloud mode is a combination
+            // the picker itself refuses to let anyone choose — Settings must not be the
+            // one place in the product that can hold a state the rest of it forbids.
+            if (checkModeConsistency(revalidatingMode, origin) !== "ok") {
+              dispatch({ type: "models", models: event.models });
+            }
+            // Otherwise the current model still fits the new mode: stay on Settings.
+            return;
+          }
+          dispatch({ type: "models", models: event.models });
+          return;
+        }
+        case "download-progress":
+          dispatch({ type: "download", progress: event.progress });
+          if (event.progress.type === "completed") {
+            resumableCommandRef.current = undefined;
+            const next = {
+              ...preferencesRef.current,
+              selectedModel: event.progress.model,
+            };
+            setChosenPreferences(next);
+            dispatch({ type: "preferences", model: event.progress.model });
+          } else if (event.progress.type === "failed") {
+            resumableCommandRef.current = undefined;
+            dispatch({ type: "failed", error: event.progress.error });
+          }
+          return;
+        case "readiness-result":
+          resumableCommandRef.current = undefined;
+          dispatch({ type: "complete", result: event.result });
+          return;
+        case "onboarding-complete":
+          resumableCommandRef.current = undefined;
+          dispatch({ type: "saved" });
+          return;
+        case "onboarding-failed":
+          resumableCommandRef.current = undefined;
+          revalidatingModeRef.current = undefined;
+          if (event.error.code === "OLLAMA_SIGNIN_REQUIRED") {
+            dispatch({ type: "cloud-signin-guidance", error: event.error });
+            return;
+          }
+          dispatch({ type: "failed", error: event.error });
+      }
+    },
+    [send, setChosenPreferences],
+  );
+
+  useEffect(() => {
+    const client = createClient() as OnboardingClientConnection;
+    clientRef.current = client;
+    const unsubscribeMessage = client.subscribe(handleEvent);
+    const unsubscribeDisconnect = client.subscribeDisconnect(() => reconnect());
+    const resumableCommand = resumableCommandRef.current;
+    if (resumableCommand) client.send(resumableCommand);
+
+    return () => {
+      unsubscribeMessage();
+      unsubscribeDisconnect();
+      if (clientRef.current === client) clientRef.current = undefined;
+      client.disconnect();
+    };
+  }, [connectionGeneration, createClient, handleEvent]);
+
+  const begin = useCallback((): void => {
+    dispatch({ type: "begin" });
+  }, []);
+
+  const checkRuntime = useCallback((): void => {
+    dispatch({ type: "check-runtime" });
+    send({ type: "check-runtime" });
+  }, [send]);
+
+  const goBack = useCallback((): void => {
+    dispatch({
+      type: "back",
+      models: lastModelsRef.current,
+      model: preferencesRef.current.selectedModel,
+    });
+  }, []);
+
+  const showOriginGuidance = useCallback((): void => {
+    dispatch({ type: "show-origin-guidance" });
+  }, []);
+
+  const downloadModel = useCallback(
+    (model: string): void => {
+      dispatch({ type: "download", progress: { type: "started", model } });
+      send({ type: "download-model", model });
+    },
+    [send],
+  );
+
+  const useInstalledModel = useCallback(
+    (model: string): void => {
+      const next = { ...preferencesRef.current, selectedModel: model };
+      setChosenPreferences(next);
+      dispatch({ type: "preferences", model });
+    },
+    [setChosenPreferences],
+  );
+
+  const cancelDownload = useCallback((): void => {
+    resumableCommandRef.current = undefined;
+    send({ type: "cancel-download" }, { resumable: false, retryable: false });
+    dispatch({
+      type: "failed",
+      error: recoverableError("REQUEST_CANCELLED", "The model download was cancelled."),
+    });
+  }, [send]);
+
+  const savePreferences = useCallback(
+    (next: ReadingPreferences): void => {
+      setChosenPreferences(next);
+      dispatch({ type: "context", preferences: next });
+    },
+    [setChosenPreferences],
+  );
+
+  const saveContext = useCallback(
+    (includeNearbyContext: boolean): void => {
+      const next = { ...preferencesRef.current, includeNearbyContext };
+      setChosenPreferences(next);
+      dispatch({ type: "permission", preferences: next });
+    },
+    [setChosenPreferences],
+  );
+
+  const runReadiness = useCallback(
+    (next = preferencesRef.current, permissionDenied = false): void => {
+      dispatch({ type: "readiness", preferences: next, permissionDenied });
+      send({
+        type: "run-readiness",
+        model: next.selectedModel,
+        preferences: next,
+      });
+    },
+    [send],
+  );
+
+  const resolvePermission = useCallback(
+    (granted: boolean, denied = false): void => {
+      const next = { ...preferencesRef.current, automaticToolbar: granted };
+      setChosenPreferences(next);
+      runReadiness(next, denied && !granted);
+    },
+    [runReadiness, setChosenPreferences],
+  );
+
+  const finish = useCallback((): void => {
+    send({
+      type: "complete-onboarding",
+      preferences: preferencesRef.current,
+    });
+  }, [send]);
+
+  const updateSettings = useCallback(
+    async (patch: Partial<ReadingPreferences>): Promise<void> => {
+      const stored = await settingsRepository.update(patch);
+      setChosenPreferences(stored.preferences);
+    },
+    [settingsRepository, setChosenPreferences],
+  );
+
+  const chooseMode = useCallback(
+    (mode: SelectedProvider): void => {
+      dispatch({ type: "mode", mode });
+      pendingModeSaveRef.current = { mode, origin: "choose" };
+      // Persist before probing so the runtime check reads the mode just chosen,
+      // not whatever was stored before. A persistence failure must not strand
+      // the reader on the checking-runtime screen, but it must not stay silent
+      // either: if `preferences.selectedProvider` never actually changes, every
+      // request still runs in the old mode while `state.mode` (and therefore the
+      // interface) claims the new one. Reported through the same "failed" step
+      // every other onboarding failure uses — and, on failure, the probe below is
+      // skipped rather than fired anyway, because its result would land moments
+      // later and silently replace the failure notice before the reader can read
+      // it. `retry` (below) re-attempts this exact save.
+      void updateSettings({ selectedProvider: mode }).then(
+        () => {
+          pendingModeSaveRef.current = undefined;
+          send({ type: "check-runtime" });
+        },
+        () => {
+          dispatch({
+            type: "failed",
+            error: recoverableError(
+              "MODE_NOT_SAVED",
+              "The chosen mode could not be saved.",
+            ),
+          });
+        },
+      );
+    },
+    [send, updateSettings],
+  );
+
+  const changeMode = useCallback(
+    (mode: SelectedProvider): void => {
+      // Dispatched synchronously, before the storage round trip, so `state.mode` (and
+      // anything reading it, like the rail milestone label) never lags a render behind
+      // the reader's click — the same fix `chooseMode` already applies for `preferences`.
+      dispatch({ type: "settings-mode", mode });
+      pendingModeSaveRef.current = { mode, origin: "change" };
+      revalidatingModeRef.current = mode;
+      // See chooseMode's comment: a swallowed failure here would leave Settings
+      // claiming the new mode while every request keeps running in the old one, and
+      // firing the revalidation list-models anyway would risk the same failure-notice
+      // race chooseMode avoids above.
+      void updateSettings({ selectedProvider: mode }).then(
+        () => {
+          pendingModeSaveRef.current = undefined;
+          send({ type: "list-models", mode });
+        },
+        () => {
+          revalidatingModeRef.current = undefined;
+          dispatch({
+            type: "failed",
+            error: recoverableError(
+              "MODE_NOT_SAVED",
+              "The chosen mode could not be saved.",
+            ),
+          });
+        },
+      );
+    },
+    [send, updateSettings],
+  );
+
+  const retry = useCallback((): void => {
+    // A MODE_NOT_SAVED failure comes from a storage write, not a wire command, so it
+    // has nothing in `retryCommandRef` to replay — re-run the save that failed instead.
+    const pendingModeSave = pendingModeSaveRef.current;
+    if (
+      state.step === "failed" &&
+      state.error.code === "MODE_NOT_SAVED" &&
+      pendingModeSave
+    ) {
+      if (pendingModeSave.origin === "choose") chooseMode(pendingModeSave.mode);
+      else changeMode(pendingModeSave.mode);
+      return;
+    }
+
+    const command = retryCommandRef.current;
+    if (!command) return;
+
+    switch (command.type) {
+      case "check-runtime":
+      case "list-models":
+        dispatch({ type: "check-runtime" });
+        break;
+      case "download-model":
+        dispatch({
+          type: "download",
+          progress: { type: "started", model: command.model },
+        });
+        break;
+      case "run-readiness":
+        dispatch({
+          type: "readiness",
+          preferences: command.preferences,
+          permissionDenied: !command.preferences.automaticToolbar,
+        });
+        break;
+      case "complete-onboarding":
+      case "cancel-download":
+        break;
+    }
+    send(command);
+  }, [send, state, chooseMode, changeMode]);
+
+  return {
+    state,
+    preferences,
+    showOriginGuidance,
+    begin,
+    checkRuntime,
+    chooseMode,
+    changeMode,
+    goBack,
+    downloadModel,
+    useInstalledModel,
+    cancelDownload,
+    savePreferences,
+    saveContext,
+    resolvePermission,
+    runReadiness,
+    finish,
+    updateSettings,
+    retry,
+  };
+}

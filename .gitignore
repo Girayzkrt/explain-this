@@ -82,6 +82,10 @@ out
 .nuxt
 dist
 .output
+.wxt/
+test-results/
+playwright-report/
+blob-report/
 
 # Gatsby files
 .cache/
@@ -141,3 +145,16 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Local evaluation responses (never commit model output or page text)
+artifacts/evaluation/
+
+# Local design and implementation planning artifacts
+docs/planning/
+
+# Isolated implementation worktrees and subagent workflow records
+.worktrees/
+.superpowers/
+
+# Agent process artifacts: plans, specs, ledgers and review diffs stay local.
+docs/superpowers/

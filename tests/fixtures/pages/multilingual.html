@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja" data-fixture="multilingual">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Multilingual reading fixture</title>
+  </head>
+  <body>
+    <main>
+      <p id="multilingual-target">
+        <span id="multilingual-selection"
+          >光合成は光エネルギーを化学エネルギーに変換します。</span
+        >
+        Fotosynthese wandelt Lichtenergie in chemische Energie um.
+      </p>
+      <p id="oversized-selection"></p>
+      <script>
+        document.getElementById("oversized-selection").textContent = "漢".repeat(1601);
+      </script>
+    </main>
+  </body>
+</html>

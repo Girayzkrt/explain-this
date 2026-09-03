@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check
+      # The extension harness launches a headed persistent Chromium, which hosted Linux
+      # has no display for. Ruling 3: Linux CI goes through xvfb-run, local macOS and
+      # Windows call npm run test:e2e directly.
+      - run: xvfb-run -a npm run test:e2e
+      # The real-Ollama evaluation suite is deliberately never run in hosted CI.

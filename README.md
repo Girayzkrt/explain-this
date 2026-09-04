@@ -13,8 +13,6 @@ computer.
 > bug report, a fix, better copy, or a language it handles badly. Start with
 > [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-![The reader card explaining a selected passage](docs/assets/selection-card.png)
-
 ## Why this and not a translator or a chat sidebar
 
 Translation tools convert words. They do not tell you what a sentence _means_ when the
@@ -159,8 +157,6 @@ The answer streams into a card next to your selection. From there you can **Stop
 **Copy**, **Try again**, or **Open in side panel** for a roomier view, and ask a follow-up:
 _Simpler_, _More detail_, _Why?_, or _Another example_.
 
-![The side panel with follow-ups](docs/assets/side-panel.png)
-
 > **Translate is experimental.** Every 3B-class model evaluated produced flawed
 > translations, invented words and, in some cases, characters from an entirely different
 > script. Do not rely on it for anything that matters.
@@ -181,8 +177,6 @@ Declining optional access costs you only the automatic toolbar. The shortcut and
 menu keep working.
 
 ## Settings
-
-![The settings screen](docs/assets/settings.png)
 
 Everything you choose during setup stays editable: the mode (**On this computer** or
 **Ollama Cloud**), the model, explanation level (everyday, standard, technical), the
